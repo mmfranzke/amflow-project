@@ -1,15 +1,24 @@
 (* config/LoadAMFlow.wl
    Shared project bootstrap: loads local paths, AMFlow, and output folders. *)
 
-ClearAll["Global`*"];
+ClearAll[projectDirFromInput];
 
-(* Keep this explicit. The iCloud path contains spaces and unicode. *)
-$ProjectDirectory =
-  "/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project";
+projectDirFromInput =
+  DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
-(* AMFlow itself stays outside iCloud. *)
+$ProjectDirectory = projectDirFromInput;
+
 $AMFlowDirectory =
-  FileNameJoin[{$HomeDirectory, "physics", "tools", "AMFlow"}];
+  If[StringQ[Environment["AMFLOW_DIR"]] && Environment["AMFLOW_DIR"] =!= "",
+    ExpandFileName[Environment["AMFLOW_DIR"]],
+    FileNameJoin[{$HomeDirectory, "physics", "tools", "AMFlow"}]
+  ];
+
+$AMFlowPathsFile =
+  If[StringQ[Environment["AMFLOW_PATHS_FILE"]] && Environment["AMFLOW_PATHS_FILE"] =!= "",
+    ExpandFileName[Environment["AMFLOW_PATHS_FILE"]],
+    FileNameJoin[{$HomeDirectory, "physics", "tools", "amflow-paths.wl"}]
+  ];
 
 If[! DirectoryQ[$ProjectDirectory],
   Print["Project directory not found: ", $ProjectDirectory];
@@ -23,8 +32,14 @@ If[! DirectoryQ[$AMFlowDirectory],
 
 AppendTo[$Path, $AMFlowDirectory];
 
+If[! FileExistsQ[$AMFlowPathsFile],
+  Print["AMFlow paths file not found: ", $AMFlowPathsFile];
+  Print["Set AMFLOW_PATHS_FILE if it lives somewhere else."];
+  Abort[];
+];
+
 (* Adds FiniteFlow, LiteIBP, LiteRed, and dynamic-library paths. *)
-Get["/Users/FranzkeMM/physics/tools/amflow-paths.wl"];
+Get[$AMFlowPathsFile];
 
 Get["AMFlow.m"];
 

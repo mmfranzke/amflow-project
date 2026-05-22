@@ -2,10 +2,10 @@
    Fresh one-loop check: computes F+, J-, and compares directly.
    This avoids stale exported result files. *)
 
-projectDir = DirectoryName[DirectoryName[$InputFileName]];
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
-Get[projectDir, "config", "LoadAMFlow.wl"];
-Get[projectDir, "config", "AMFlowOptions.wl"}]];
+Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
+Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];
 Get[FileNameJoin[{projectDir, "families", "OneLoopKernelUncutPlusFamily.wl"}]];
 Get[FileNameJoin[{projectDir, "families", "OneLoopKernelUncutMinusFamily.wl"}]];
 

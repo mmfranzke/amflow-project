@@ -2,7 +2,7 @@
    Fresh two-loop check: computes PP, PM, MP, MM and compares the double
    discontinuity to the analytic closed form at one light-like point. *)
 
-projectDir = DirectoryName[DirectoryName[$InputFileName]];
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
 Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
 Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];

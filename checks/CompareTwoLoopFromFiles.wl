@@ -7,8 +7,7 @@ ClearAll["Global`*"];
 Print["Warning: this comparison reads previously exported two-loop result files."];
 Print["Regenerate PP, PM, MP, MM after changing p2, masses, or epsOrder."];
 
-projectDir =
-  "/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project";
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
 resultsDir = FileNameJoin[{projectDir, "results"}];
 

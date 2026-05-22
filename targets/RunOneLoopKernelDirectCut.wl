@@ -2,7 +2,7 @@
    Diagnostic direct cut-linear attempt.
    Kept to document the route that currently fails in AMFlow. *)
 
-projectDir = DirectoryName[DirectoryName[$InputFileName]];
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
 Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
 Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];

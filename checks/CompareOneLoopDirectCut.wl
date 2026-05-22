@@ -4,8 +4,7 @@
 
 ClearAll["Global`*"];
 
-projectDir =
-  "/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project";
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
 resultsDir = FileNameJoin[{projectDir, "results"}];
 

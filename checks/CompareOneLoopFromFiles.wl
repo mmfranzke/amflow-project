@@ -7,8 +7,7 @@ ClearAll["Global`*"];
 Print["Warning: this comparison reads previously exported +L and -L result files."];
 Print["For a fresh one-command calculation and comparison, use ./run.sh compare-oneloop."];
 
-projectDir =
-  "/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project";
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
 resultsDir = FileNameJoin[{projectDir, "results"}];
 

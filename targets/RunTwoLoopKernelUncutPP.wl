@@ -1,7 +1,7 @@
 (* targets/RunTwoLoopKernelUncutPP.wl
    Computes the PP uncut two-loop GaugeLink piece alone. *)
 
-projectDir = DirectoryName[DirectoryName[$InputFileName]];
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
 Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
 Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];

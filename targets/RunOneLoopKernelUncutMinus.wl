@@ -2,7 +2,7 @@
    Computes J- with the uncut -L+i0 linear denominator.
    This is one piece of the discontinuity reconstruction, not the delta kernel. *)
 
-projectDir = DirectoryName[DirectoryName[$InputFileName]];
+projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
 Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
 Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];
