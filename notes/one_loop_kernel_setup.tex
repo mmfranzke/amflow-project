@@ -30,6 +30,8 @@ counterterm \(I_C(x,y)\). The present project contains:
   \item a working uncut linear-propagator GaugeLink setup;
   \item a discontinuity reconstruction of the one-loop delta constraint from
         two uncut linear-propagator runs;
+  \item a one-loop auxiliary-denominator test where the extra denominator is
+        included in the family but requested with exponent zero;
   \item a first two-loop GaugeLink setup that reconstructs the two delta
         constraints from four uncut sign-prescription pieces.
 \end{enumerate}
@@ -95,6 +97,16 @@ The active project files are:
         delta constraint from previously exported uncut result files and
         compares coefficient by coefficient. This is convenient, but it can
         read stale files if the kinematics were changed.
+  \item \WL{families/OneLoopKernelAuxDenFamilies.wl}: one-loop \(+L\) and
+        \(-L\) families with one extra auxiliary denominator.
+  \item \WL{targets/RunOneLoopKernelAuxDenPlus.wl}: runs the auxiliary
+        denominator \(+L\) piece with the auxiliary exponent set to zero.
+  \item \WL{targets/RunOneLoopKernelAuxDenMinus.wl}: runs the auxiliary
+        denominator \(-L\) piece with the auxiliary exponent set to zero.
+  \item \WL{targets/CompareOneLoopAuxDen.wl}: computes both auxiliary
+        denominator pieces and compares to the analytic one-loop kernel.
+  \item \WL{checks/CompareOneLoopAuxDenFromFiles.wl}: post-processes the
+        exported auxiliary denominator pieces.
   \item \WL{checks/CompareOneLoopDirectCut.wl}: legacy comparison script for
         the direct cut-linear attempt.
   \item \WL{families/TwoLoopKernelUncutFamilies.wl}: four two-loop uncut
@@ -122,6 +134,10 @@ The shell entry points are:
 ./run.sh oneloop-kernel-uncut-minus
 ./run.sh compare-oneloop
 ./run.sh compare-oneloop-from-files
+./run.sh oneloop-kernel-aux-plus
+./run.sh oneloop-kernel-aux-minus
+./run.sh compare-oneloop-aux
+./run.sh compare-oneloop-aux-from-files
 ./run.sh compare-oneloop-direct-cut
 ./run.sh twoloop-kernel-uncut-pp
 ./run.sh twoloop-kernel-uncut-pm
@@ -167,6 +183,23 @@ The shell entry points are:
   discontinuity, and compares to the analytic expression.
 & Quick post-processing only. Use with care: it can compare stale data if the
   result files were generated with old kinematics or old \(\eps\)-order. \\
+\WL{oneloop-kernel-aux-plus}
+& Computes \(F_+\) with one extra auxiliary denominator at exponent zero.
+& Diagnostic target for testing whether adding a zero-power denominator changes
+  the one-loop GaugeLink result. \\
+\WL{oneloop-kernel-aux-minus}
+& Computes \(J_-\) with one extra auxiliary denominator at exponent zero.
+& Diagnostic target paired with \WL{oneloop-kernel-aux-plus}. \\
+\WL{compare-oneloop-aux}
+& Fresh auxiliary-denominator check. Computes both pieces, forms
+  \((-J_--F_+)/(2\pi\ii)\), and compares to the analytic kernel.
+& Preferred target for testing the zero-power denominator mechanism without
+  relying on old result files. \\
+\WL{compare-oneloop-aux-from-files}
+& Reads previously exported auxiliary \(F_+\) and \(J_-\) result files and
+  compares their discontinuity to the analytic expression.
+& Quick post-processing only. Use only after rerunning both auxiliary pieces
+  with the current setup. \\
 \WL{compare-oneloop-direct-cut}
 & Legacy comparison script for the direct cut-linear result.
 & Not part of the recommended workflow at present, because the direct
@@ -493,6 +526,53 @@ For each \(p\), the script prints
   c_p^{\mathrm{AMFlow}}-c_p^{\mathrm{ana}},\qquad
   \frac{c_p^{\mathrm{AMFlow}}}{c_p^{\mathrm{ana}}}.
 \end{equation}
+
+\section{Stage 5b: One-Loop Auxiliary-Denominator Test}
+
+The two-loop family needs an extra denominator to complete the scalar-product
+space. It is then requested with exponent zero. Before trusting this mechanism
+in the expensive two-loop run, the same idea is tested in the one-loop setup.
+The auxiliary one-loop families use
+\begin{equation}
+  D_1=l^2-m^2,\qquad
+  D_2=(l+p)^2-M^2,\qquad
+  D_3=\pm(n\cdot l+x),\qquad
+  D_4=(l-p)^2.
+\end{equation}
+The AMFlow targets are
+\begin{equation}
+  \WL{j[oneloopkernelauxplus, 1, 1, 1, 0]},
+  \qquad
+  \WL{j[oneloopkernelauxminus, 1, 1, 1, 0]}.
+\end{equation}
+Thus \(D_4\) is present in the family definition but absent from the integral.
+The physical one-loop integral should therefore be unchanged.
+
+The fresh target is
+\begin{verbatim}
+./run.sh compare-oneloop-aux
+\end{verbatim}
+It computes the auxiliary \(F_+\) and \(J_-\) pieces, forms the same
+discontinuity,
+\begin{equation}
+  I_{c,\mathrm{aux}}^{\mathrm{disc}}
+  =
+  \frac{-J_-^{\mathrm{aux}}-F_+^{\mathrm{aux}}}{2\pi\ii},
+\end{equation}
+and compares it coefficient by coefficient to
+\begin{equation}
+  \frac{\Gamma(1+\eps)}{\eps}A^{-\eps},
+  \qquad
+  A=(1-x)m^2+xM^2-x(1-x)p^2.
+\end{equation}
+The split workflow is also available:
+\begin{verbatim}
+./run.sh oneloop-kernel-aux-plus
+./run.sh oneloop-kernel-aux-minus
+./run.sh compare-oneloop-aux-from-files
+\end{verbatim}
+The file-based command is only post-processing. It must not be trusted after a
+change of kinematics or \(\eps\)-order unless both auxiliary pieces were rerun.
 
 \section{Stage 6: Two-Loop GaugeLink Setup}
 

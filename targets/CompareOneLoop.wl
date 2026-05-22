@@ -79,8 +79,7 @@ comparison =
         "amflow" -> cAM,
         "analytic" -> cAN,
         "difference" -> N[cAM - cAN, 30],
-        "ratio" -> N[cAM/cAN, 30],
-        ""
+        "ratio" -> N[cAM/cAN, 30]
       |>
     ],
     {p, coeffPowers}

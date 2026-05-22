@@ -52,6 +52,22 @@ case "$TARGET" in
     # Post-processes exported F+ and J- results to compare to the analytic kernel.
     SCRIPT="$PROJECT_DIR/checks/CompareOneLoopFromFiles.wl"
     ;;
+  oneloop-kernel-aux-plus)
+    # Computes F+ with an extra auxiliary denominator set to exponent 0.
+    SCRIPT="$PROJECT_DIR/targets/RunOneLoopKernelAuxDenPlus.wl"
+    ;;
+  oneloop-kernel-aux-minus)
+    # Computes J- with an extra auxiliary denominator set to exponent 0.
+    SCRIPT="$PROJECT_DIR/targets/RunOneLoopKernelAuxDenMinus.wl"
+    ;;
+  compare-oneloop-aux)
+    # Fresh zero-power denominator test: computes F+, J-, and compares directly.
+    SCRIPT="$PROJECT_DIR/targets/CompareOneLoopAuxDen.wl"
+    ;;
+  compare-oneloop-aux-from-files)
+    # Post-processes exported auxiliary F+ and J- results to compare to the analytic kernel.
+    SCRIPT="$PROJECT_DIR/checks/CompareOneLoopAuxDenFromFiles.wl"
+    ;;
   twoloop-kernel-uncut-pp)
     # Computes the PP two-loop uncut GaugeLink piece.
     SCRIPT="$PROJECT_DIR/targets/RunTwoLoopKernelUncutPP.wl"
@@ -78,7 +94,7 @@ case "$TARGET" in
     ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-from-files"
+    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, oneloop-kernel-aux-plus, oneloop-kernel-aux-minus, compare-oneloop-aux, compare-oneloop-aux-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-from-files"
     exit 1
     ;;
 esac

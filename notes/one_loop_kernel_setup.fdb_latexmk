@@ -1,7 +1,5 @@
 # Fdb version 3
-["pdflatex"] 1779378964 "/Users/FranzkeMM/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/notes/one_loop_kernel_setup.tex" "/Users/FranzkeMM/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/notes/one_loop_kernel_setup.pdf" "one_loop_kernel_setup" 1779378966
-  "/Users/FranzkeMM/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/notes/one_loop_kernel_setup.aux" 1779378966 2182 39dffc8f0a6a17dd2bcac31b63812832 ""
-  "/Users/FranzkeMM/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/notes/one_loop_kernel_setup.tex" 1779378963 20756 143f94dced858193758c1b6f85eb9da0 ""
+["pdflatex"] 1779467757 "one_loop_kernel_setup.tex" "one_loop_kernel_setup.pdf" "one_loop_kernel_setup" 1779467759
   "/usr/local/texlive/2021/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1136849721 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/usr/local/texlive/2021/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/local/texlive/2021/texmf-dist/fonts/tfm/jknappen/ec/tcrm1095.tfm" 1136768653 1536 02c06700a42be0f5a28664c7273f82e7 ""
@@ -98,13 +96,11 @@
   "/usr/local/texlive/2021/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1616695603 5169178 a2ce6e2d73f603b690db6777d06dbccb ""
   "/usr/local/texlive/2021/texmf-var/web2c/pdftex/pdflatex.fmt" 1621168622 2724737 2edc997f4b8c24eaa99bcb293a3624f3 ""
   "/usr/local/texlive/2021/texmf.cnf" 1616695596 577 4c1911a7228e554c6032256d3cf5567d ""
-  "one_loop_kernel_setup.aux" 1779378966 2182 39dffc8f0a6a17dd2bcac31b63812832 "pdflatex"
-  "one_loop_kernel_setup.out" 1779378966 2218 806d6a2119d406a9251d7cc2fcb822d8 "pdflatex"
-  "one_loop_kernel_setup.tex" 1779378963 20756 143f94dced858193758c1b6f85eb9da0 ""
+  "one_loop_kernel_setup.aux" 1779467759 2326 90a1f4d76434654b9757cbef360bf0a9 "pdflatex"
+  "one_loop_kernel_setup.out" 1779467759 2500 9d6d772c3af0f53243e397b0001560d1 "pdflatex"
+  "one_loop_kernel_setup.tex" 1779467673 24187 bac0541dd7fb3f1a1c5e30b8751d9781 ""
   (generated)
-  "one_loop_kernel_setup.out"
   "one_loop_kernel_setup.aux"
-  "one_loop_kernel_setup.pdf"
-  "/Users/FranzkeMM/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/notes/one_loop_kernel_setup.pdf"
-  "/Users/FranzkeMM/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/notes/one_loop_kernel_setup.log"
+  "one_loop_kernel_setup.out"
   "one_loop_kernel_setup.log"
+  "one_loop_kernel_setup.pdf"
