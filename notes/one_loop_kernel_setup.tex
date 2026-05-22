@@ -1,0 +1,624 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.6cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\ii}{\mathrm{i}}
+\newcommand{\eps}{\epsilon}
+\newcommand{\AMFlow}{\textsc{AMFlow}}
+\newcommand{\WL}[1]{\texttt{#1}}
+
+\title{AMFlow Project Log: Bubble, One-Loop, and Two-Loop Kernels}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Scope}
+
+This note documents the current AMFlow sandbox project. The goal is to build
+up confidence step by step before attempting the two-loop delta-constrained
+counterterm \(I_C(x,y)\). The present project contains:
+\begin{enumerate}
+  \item a working ordinary one-loop bubble sanity check;
+  \item a direct cut-linear one-loop collinear-kernel attempt, which currently
+        fails inside AMFlow;
+  \item a working uncut linear-propagator GaugeLink setup;
+  \item a discontinuity reconstruction of the one-loop delta constraint from
+        two uncut linear-propagator runs;
+  \item a first two-loop GaugeLink setup that reconstructs the two delta
+        constraints from four uncut sign-prescription pieces.
+\end{enumerate}
+The two-loop setup is still at the first low-order AMFlow-test stage. The
+purpose is to check whether AMFlow can reduce and evaluate the four uncut
+two-loop GaugeLink pieces before increasing the requested Laurent order.
+
+\section{Directories and External Setup}
+
+The project directory is
+\begin{verbatim}
+/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/
+  Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project
+\end{verbatim}
+The AMFlow package is kept outside iCloud:
+\begin{verbatim}
+/Users/FranzkeMM/physics/tools/AMFlow
+\end{verbatim}
+The helper file
+\begin{verbatim}
+/Users/FranzkeMM/physics/tools/amflow-paths.wl
+\end{verbatim}
+adds the relevant paths for FiniteFlow, LiteIBP, LiteRed, and the FiniteFlow
+dynamic library. A separate AMFlow-specific fix was also required: the reducer
+file
+\begin{verbatim}
+AMFlow/ibp_interface/FiniteFlow+LiteRed/install.m
+\end{verbatim}
+must set
+\begin{verbatim}
+$FFPath
+$FFLibraryPath
+$LiteIBPPath
+$LiteRedPath
+\end{verbatim}
+directly, because AMFlow's dependency check does not rely only on
+\(\$\)\WL{Path}. Finally, \WL{fflowmlink.dylib} needed an rpath pointing to the
+FiniteFlow build directory so that it can find \WL{libfflow.dylib}.
+
+\section{Project Structure}
+
+The active project files are:
+\begin{itemize}
+  \item \WL{config/LoadAMFlow.wl}: sets absolute project paths, loads
+        \WL{amflow-paths.wl}, then loads AMFlow.
+  \item \WL{config/AMFlowOptions.wl}: currently only sets the thread count.
+  \item \WL{families/BubbleFamily.wl}: ordinary one-loop massive bubble.
+  \item \WL{targets/RunBubble.wl}: runs the bubble sanity check.
+  \item \WL{families/OneLoopKernelDirectCutFamily.wl}: direct cut-linear attempt.
+  \item \WL{targets/RunOneLoopKernelDirectCut.wl}: runs the direct cut-linear attempt.
+  \item \WL{families/OneLoopKernelUncutPlusFamily.wl}: uncut \(+L\) linear
+        denominator family.
+  \item \WL{targets/RunOneLoopKernelUncutPlus.wl}: runs the \(+L\) GaugeLink
+        integral.
+  \item \WL{families/OneLoopKernelUncutMinusFamily.wl}: uncut \(-L\) linear
+        denominator family.
+  \item \WL{targets/RunOneLoopKernelUncutMinus.wl}: runs the \(-L\) GaugeLink
+        integral.
+  \item \WL{targets/CompareOneLoop.wl}: computes \(F_+\),
+        computes \(J_-\), forms the discontinuity, and compares to the
+        analytic result in one fresh run.
+  \item \WL{checks/CompareOneLoopFromFiles.wl}: reconstructs the
+        delta constraint from previously exported uncut result files and
+        compares coefficient by coefficient. This is convenient, but it can
+        read stale files if the kinematics were changed.
+  \item \WL{checks/CompareOneLoopDirectCut.wl}: legacy comparison script for
+        the direct cut-linear attempt.
+  \item \WL{families/TwoLoopKernelUncutFamilies.wl}: four two-loop uncut
+        GaugeLink families, labelled \WL{PP}, \WL{PM}, \WL{MP}, and \WL{MM}.
+  \item \WL{targets/TwoLoopKernelTargetTools.wl}: shared helper functions for
+        the two-loop targets.
+  \item \WL{targets/RunTwoLoopKernelUncutPP.wl}: runs the \WL{PP} two-loop
+        sign piece alone.
+  \item \WL{targets/RunTwoLoopKernelUncutPM.wl}: runs the \WL{PM} two-loop
+        sign piece alone.
+  \item \WL{targets/RunTwoLoopKernelUncutMP.wl}: runs the \WL{MP} two-loop
+        sign piece alone.
+  \item \WL{targets/RunTwoLoopKernelUncutMM.wl}: runs the \WL{MM} two-loop
+        sign piece alone.
+  \item \WL{targets/CompareTwoLoop.wl}: computes all four two-loop pieces,
+        forms the double discontinuity, and compares to the closed form.
+  \item \WL{checks/CompareTwoLoopFromFiles.wl}: post-processes previously
+        exported two-loop sign pieces.
+\end{itemize}
+The shell entry points are:
+\begin{verbatim}
+./run.sh bubble
+./run.sh oneloop-kernel-direct-cut
+./run.sh oneloop-kernel-uncut-plus
+./run.sh oneloop-kernel-uncut-minus
+./run.sh compare-oneloop
+./run.sh compare-oneloop-from-files
+./run.sh compare-oneloop-direct-cut
+./run.sh twoloop-kernel-uncut-pp
+./run.sh twoloop-kernel-uncut-pm
+./run.sh twoloop-kernel-uncut-mp
+./run.sh twoloop-kernel-uncut-mm
+./run.sh compare-twoloop
+./run.sh compare-twoloop-from-files
+\end{verbatim}
+
+\subsection*{Target Reference}
+
+\begin{center}
+\begin{tabular}{p{0.31\textwidth}p{0.23\textwidth}p{0.36\textwidth}}
+\hline
+\textbf{Target} & \textbf{Role} & \textbf{When to use it} \\
+\hline
+\WL{bubble}
+& Ordinary one-loop bubble sanity check.
+& Use this to verify that AMFlow, Mathematica subprocesses, the reducer, and
+  the dynamic libraries still work. It is not a collinear-kernel test. \\
+\WL{oneloop-kernel-direct-cut}
+& Direct cut-linear attempt with \(L=n\cdot l+x\) marked as cut.
+& Diagnostic only. This currently fails in AMFlow's cut-linear/boundary
+  handling and is kept to document the failed direct route. \\
+\WL{oneloop-kernel-uncut-plus}
+& Computes \(F_+\), the uncut GaugeLink integral with denominator
+  \(L+\ii0\).
+& Diagnostic/cache target. Useful for inspecting the \(+L\) piece alone. By
+  itself it is not the delta-constrained kernel. \\
+\WL{oneloop-kernel-uncut-minus}
+& Computes \(J_-\), the uncut GaugeLink integral with denominator
+  \(-L+\ii0\).
+& Diagnostic/cache target. Useful for inspecting the \(-L\) piece alone. By
+  itself it is not the delta-constrained kernel. \\
+\WL{compare-oneloop}
+& Fresh full one-loop check. Computes \(F_+\), computes \(J_-\), forms
+  \((-J_--F_+)/(2\pi\ii)\), and compares to the analytic kernel.
+& Preferred target for the actual one-loop physics sanity check. It avoids
+  stale result files because both AMFlow computations and the comparison happen
+  in the same run. \\
+\WL{compare-oneloop-from-files}
+& Reads previously exported \(F_+\) and \(J_-\) result files, forms the
+  discontinuity, and compares to the analytic expression.
+& Quick post-processing only. Use with care: it can compare stale data if the
+  result files were generated with old kinematics or old \(\eps\)-order. \\
+\WL{compare-oneloop-direct-cut}
+& Legacy comparison script for the direct cut-linear result.
+& Not part of the recommended workflow at present, because the direct
+  cut-linear AMFlow run does not currently produce the needed result. \\
+\WL{twoloop-kernel-uncut-pp}
+& Computes the two-loop \WL{PP} GaugeLink piece.
+& First two-loop setup test. It checks one uncut sign piece without forming
+  the full double discontinuity. \\
+\WL{twoloop-kernel-uncut-pm}
+& Computes the two-loop \WL{PM} GaugeLink piece.
+& Diagnostic/cache target for the mixed \(L_x+\ii0\), \(-L_y+\ii0\) piece. \\
+\WL{twoloop-kernel-uncut-mp}
+& Computes the two-loop \WL{MP} GaugeLink piece.
+& Diagnostic/cache target for the mixed \(-L_x+\ii0\), \(L_y+\ii0\) piece. \\
+\WL{twoloop-kernel-uncut-mm}
+& Computes the two-loop \WL{MM} GaugeLink piece.
+& Diagnostic/cache target for the \(-L_x+\ii0\), \(-L_y+\ii0\) piece. \\
+\WL{compare-twoloop}
+& Fresh two-loop check. Computes all four sign pieces and compares the double
+  discontinuity to the closed form.
+& Preferred target once the individual pieces reduce successfully. It avoids
+  stale exported files. \\
+\WL{compare-twoloop-from-files}
+& Reads exported two-loop sign pieces and forms the same comparison.
+& Quick post-processing only. Use with care after changing kinematics or
+  \(\eps\)-order. \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Stage 1: Bubble Sanity Check}
+
+The bubble family is
+\begin{equation}
+  B =
+  \int \frac{\dd^d l}{\ii\pi^{d/2}}\,
+  \frac{1}{(l^2-m^2)((l+p)^2-m^2)}
+\end{equation}
+at the Euclidean point
+\begin{equation}
+  p^2=s=-1,\qquad m^2=\frac{1}{10}.
+\end{equation}
+This is not a physics target; it is only a sanity check that AMFlow, the
+reducer, Mathematica subprocesses, and the dynamic libraries work.
+
+The analytic calculation is also simple. Introduce a Feynman parameter,
+\begin{equation}
+  \frac{1}{D_1D_2}
+  =
+  \int_0^1 \dd z\,
+  \frac{1}{\bigl[(l+zp)^2-m^2+z(1-z)p^2\bigr]^2}.
+\end{equation}
+After shifting the loop momentum and using \(d=4-2\eps\), the normalized
+one-loop integral becomes
+\begin{equation}
+  B
+  =
+  \Gamma(\eps)
+  \int_0^1\dd z\,
+  \left[m^2-z(1-z)p^2\right]^{-\eps}.
+\end{equation}
+For the bubble sanity point \(p^2=-1\), \(m^2=1/10\),
+\begin{equation}
+  B
+  =
+  \Gamma(\eps)
+  \int_0^1\dd z\,
+  \left[\frac{1}{10}+z(1-z)\right]^{-\eps}.
+\end{equation}
+Expanding,
+\begin{align}
+  \Gamma(\eps)
+  &=
+  \frac{1}{\eps}-\gamma_E+\mathcal{O}(\eps),
+  \\
+  \left[\frac{1}{10}+z(1-z)\right]^{-\eps}
+  &=
+  1-\eps\log\!\left[\frac{1}{10}+z(1-z)\right]
+  +\mathcal{O}(\eps^2),
+\end{align}
+so
+\begin{equation}
+  B
+  =
+  \frac{1}{\eps}
+  -
+  \gamma_E
+  -
+  \int_0^1\dd z\,
+  \log\!\left[\frac{1}{10}+z(1-z)\right]
+  +\mathcal{O}(\eps).
+\end{equation}
+The parameter integral can be evaluated as
+\begin{equation}
+  \int_0^1\dd z\,
+  \log\!\left[a+z(1-z)\right]
+  =
+  \log a - 2
+  +2\sqrt{1+4a}\,
+  \operatorname{artanh}\!\left(\frac{1}{\sqrt{1+4a}}\right),
+\end{equation}
+with \(a=1/10\). Therefore
+\begin{equation}
+  B
+  =
+  \frac{1}{\eps}
+  +0.7934919436865079827886470731\ldots
+  +\mathcal{O}(\eps).
+\end{equation}
+This matches the AMFlow output one-to-one:
+\begin{equation}
+  B_{\AMFlow}
+  =
+  \frac{1}{\eps}
+  +0.7934919436865079827886470731\ldots
+  +\mathcal{O}(\eps).
+\end{equation}
+
+\section{Stage 2: Target One-Loop Kernel}
+
+The one-loop differential collinear kernel to be tested is
+\begin{equation}
+  I_c(x,m,M)
+  =
+  \int \frac{\dd^d l}{\ii \pi^{d/2}}\,
+  \frac{\delta(x+n\cdot l)}
+       {(l^2-m^2)((l+p)^2-M^2)},
+  \qquad d=4-2\eps ,
+\end{equation}
+with
+\begin{equation}
+  n^2=0,\qquad p\cdot n=1,\qquad p^2=0.
+\end{equation}
+The symbol \WL{eta} is avoided because AMFlow reserves it for the auxiliary
+mass-flow variable. The light-like vector is called \WL{n}.
+
+The AMFlow denominator convention is
+\begin{equation}
+  D_1=l^2-m^2,\qquad
+  D_2=(l+p)^2-M^2,\qquad
+  L=n\cdot l+x.
+\end{equation}
+The active numerical point is
+\begin{equation}
+  x=\frac13,\qquad m^2=\frac{1}{10},\qquad M^2=\frac15,\qquad p^2=0.
+\end{equation}
+
+\section{Stage 3: Direct Cut-Linear Attempt}
+
+The most literal AMFlow encoding is to include \(L=n\cdot l+x\) as the third
+propagator and set
+\begin{equation}
+  \WL{AMFlowInfo["Cut"] = \{0,0,1\}} .
+\end{equation}
+This is implemented in \WL{OneLoopKernelDirectCutFamily.wl}. It was useful as a
+diagnostic, but it is not currently the working route:
+\begin{itemize}
+  \item ordinary \WL{SolveIntegrals} fails immediately because the standard
+        path tries to rewrite all denominators as squared denominators;
+  \item \WL{SolveIntegralsGaugeLink} accepts the linear denominator, but with
+        the cut flag it fails later at an ending-system/boundary stage.
+\end{itemize}
+Thus the syntax \(n\,l+x\) is not the fundamental issue. The obstacle is direct
+automatic treatment of a cut linear denominator.
+
+\section{Stage 4: GaugeLink Linear-Propagator Tests}
+
+AMFlow has a special function \WL{SolveIntegralsGaugeLink} for ordinary
+linear propagators. It implements the strategy described in the AMFlow linear
+propagator paper: introduce an auxiliary quadratic representation for a linear
+denominator, solve differential equations in the auxiliary parameter, and take
+the relevant limit.
+
+We first tested the uncut integral
+\begin{equation}
+  F_+(x)
+  =
+  \int \frac{\dd^d l}{\ii \pi^{d/2}}\,
+  \frac{1}{D_1D_2(L+\ii0)}.
+\end{equation}
+This has no direct delta-constraint meaning by itself, but it verifies that
+AMFlow can handle the linear denominator machinery. The test succeeded.
+
+The \(+L\) and \(-L\) families are kept as separate AMFlow family files because
+AMFlow's reduction tables, cache directories, and integral heads are tied to a
+single family definition. This separation was also useful during debugging.
+However, a physics comparison should not rely on manually combining result
+files from different runs, because those files may have been generated with
+older kinematics. The preferred target is therefore
+\begin{verbatim}
+./run.sh compare-oneloop
+\end{verbatim}
+which performs both GaugeLink calculations and the comparison in one fresh
+Mathematica session.
+
+\section{Stage 5: Discontinuity Reconstruction}
+
+Rather than cutting \(L\) directly in AMFlow, we reconstruct the delta function
+from two ordinary linear-propagator integrals. The identity used is
+\begin{equation}
+  \delta(L)
+  =
+  \frac{1}{2\pi \ii}
+  \left(
+    \frac{1}{L-\ii0}
+    -
+    \frac{1}{L+\ii0}
+  \right).
+\end{equation}
+The second AMFlow run uses the denominator \(-L\):
+\begin{equation}
+  J_-(x)
+  =
+  \int \frac{\dd^d l}{\ii \pi^{d/2}}\,
+  \frac{1}{D_1D_2(-L+\ii0)}.
+\end{equation}
+Since
+\begin{equation}
+  \frac{1}{L-\ii0}=-\frac{1}{-L+\ii0},
+\end{equation}
+the physical discontinuity candidate is
+\begin{equation}
+  I_c^{\mathrm{disc}}(x,m,M)
+  =
+  \frac{-J_-(x)-F_+(x)}{2\pi\ii}.
+\end{equation}
+The comparison script also prints sign variants, but the expression above is
+the intended one.
+
+\section{Analytic Formula}
+
+For the routing used here,
+\begin{equation}
+  I_c(x,m,M)
+  =
+  \frac{\Gamma(1+\eps)}{\eps}\,
+  A^{-\eps}\,
+  \Theta(0\le x\le 1),
+\end{equation}
+where
+\begin{equation}
+  A=(1-x)m^2+xM^2-x(1-x)p^2.
+\end{equation}
+With the intended light-like value \(p^2=0\),
+\begin{equation}
+  A=(1-x)m^2+xM^2.
+\end{equation}
+At the active point,
+\begin{equation}
+  A=\frac23\frac{1}{10}+\frac13\frac15=\frac{2}{15}.
+\end{equation}
+Therefore the expected expansion is
+\begin{equation}
+  \frac{\Gamma(1+\eps)}{\eps}
+  \left(\frac{2}{15}\right)^{-\eps}.
+\end{equation}
+The finite coefficient is
+\begin{equation}
+  \log\!\left(\frac{15}{2}\right)-\gamma_E.
+\end{equation}
+
+\section{Important Correction: \(p^2\)}
+
+An earlier one-loop run accidentally used \(s=p^2=-1\). This came from the
+Euclidean bubble test and was not the intended collinear kinematics. With
+\(s=-1\), the discontinuity check correctly matched the finite coefficient for
+\begin{equation}
+  A=(1-x)m^2+xM^2-x(1-x)s=\frac{16}{45},
+\end{equation}
+which was a useful sign/normalization check, but not the desired physics point.
+
+The three one-loop family files now use
+\begin{equation}
+  s\to 0.
+\end{equation}
+Consequently, one-loop result files produced before this correction are stale.
+
+\section{Current High-Order Test}
+
+The preferred current high-order test is the single fresh-run target
+\begin{verbatim}
+./run.sh compare-oneloop
+\end{verbatim}
+It computes \(F_+\), computes \(J_-\), forms
+\((-J_--F_+)/(2\pi\ii)\), and compares directly to the analytic expression.
+
+The older split workflow is still available for diagnostics:
+\begin{verbatim}
+./run.sh oneloop-kernel-uncut-plus
+./run.sh oneloop-kernel-uncut-minus
+./run.sh compare-oneloop-from-files
+\end{verbatim}
+but the last command reads exported files and can therefore compare stale data
+if one of the two calculations was not rerun after a configuration change.
+
+The two GaugeLink target scripts have been set to
+\begin{equation}
+  \WL{epsOrder = 5}.
+\end{equation}
+For \WL{SolveIntegralsGaugeLink}, this is necessary because AMFlow internally
+uses a one-loop leading power \(-2\), so the returned expansion reaches
+\(\eps^{\WL{epsOrder}-2}\). Thus \WL{epsOrder = 5} returns coefficients
+through \(\eps^3\). The comparison script expands the analytic result through
+\(\eps^3\) and compares powers
+\begin{equation}
+  \eps^{-1},\eps^0,\eps^1,\eps^2,\eps^3.
+\end{equation}
+The comparison is coefficient-wise:
+\begin{equation}
+  c_p^{\mathrm{AMFlow}}
+  =
+  [\eps^p]\,
+  \frac{-J_--F_+}{2\pi\ii},
+  \qquad
+  c_p^{\mathrm{ana}}
+  =
+  [\eps^p]\,
+  \frac{\Gamma(1+\eps)}{\eps}A^{-\eps}.
+\end{equation}
+For each \(p\), the script prints
+\begin{equation}
+  c_p^{\mathrm{AMFlow}},\qquad
+  c_p^{\mathrm{ana}},\qquad
+  c_p^{\mathrm{AMFlow}}-c_p^{\mathrm{ana}},\qquad
+  \frac{c_p^{\mathrm{AMFlow}}}{c_p^{\mathrm{ana}}}.
+\end{equation}
+
+\section{Stage 6: Two-Loop GaugeLink Setup}
+
+The two-loop target is the double-collinear kernel from
+\WL{derivations/snippets/dckernel/main.tex}:
+\begin{equation}
+  \mathcal I(x,y)=
+  \int \frac{\dd^d k}{\ii\pi^{d/2}}
+       \frac{\dd^d l}{\ii\pi^{d/2}}\,
+  \frac{\delta(x-l\cdot n)\delta(y-k\cdot n)}
+       {(l^2-m_l^2)((l-p)^2-M_l^2)(k^2-m_k^2)((l+k-p)^2-M_k^2)} .
+\end{equation}
+The AMFlow setup uses
+\begin{equation}
+  n^2=0,\qquad p\cdot n=1,
+\end{equation}
+and the two linear denominators
+\begin{equation}
+  L_x=x-n\cdot l,\qquad L_y=y-n\cdot k.
+\end{equation}
+As in the one-loop test, the direct cut-linear route is not used. Instead,
+four uncut GaugeLink pieces are introduced:
+\begin{align}
+  I_{PP} &: \frac{1}{(L_x+\ii0)(L_y+\ii0)},\\
+  I_{PM} &: \frac{1}{(L_x+\ii0)(-L_y+\ii0)},\\
+  I_{MP} &: \frac{1}{(-L_x+\ii0)(L_y+\ii0)},\\
+  I_{MM} &: \frac{1}{(-L_x+\ii0)(-L_y+\ii0)}.
+\end{align}
+The double delta constraint is reconstructed from
+\begin{equation}
+  \delta(L_x)\delta(L_y)
+  =
+  \frac{1}{(2\pi\ii)^2}
+  \left(
+    \frac{1}{L_x-\ii0}-\frac{1}{L_x+\ii0}
+  \right)
+  \left(
+    \frac{1}{L_y-\ii0}-\frac{1}{L_y+\ii0}
+  \right).
+\end{equation}
+Using
+\begin{equation}
+  \frac{1}{L-\ii0}=-\frac{1}{-L+\ii0},
+\end{equation}
+the implemented double-discontinuity candidate is
+\begin{equation}
+  \mathcal I_{\mathrm{disc}}
+  =
+  \frac{I_{PP}+I_{PM}+I_{MP}+I_{MM}}{(2\pi\ii)^2}.
+\end{equation}
+
+The first numerical point is now a light-like point chosen to avoid branch
+phases while debugging the discontinuity normalization:
+\begin{equation}
+  x=\frac{3}{10},\qquad y=\frac14,\qquad p^2=0,
+\end{equation}
+and
+\begin{equation}
+  m_l^2=\frac{49}{100},\qquad
+  M_l^2=4,\qquad
+  m_k^2=\frac14,\qquad
+  M_k^2=\frac{81}{100}.
+\end{equation}
+This differs from the older Euclidean Python-check point. The larger value of
+\(M_l^2\) makes both \(\Delta_0\) and \(\Delta_1\) positive at \(p^2=0\), so
+the first AMFlow comparison is not mixed with a branch-cut phase test.
+The analytic comparison uses
+\begin{equation}
+  \mathcal I_{\mathrm{closed}}
+  =
+  \frac{\Gamma(\eps)^2}{1-x}
+  [\Delta_0-\ii0]^{-\eps}
+  [\Delta_1-\ii0]^{-\eps},
+\end{equation}
+with
+\begin{equation}
+  \Delta_0=(1-x)m_l^2+xM_l^2-x(1-x)p^2,
+\end{equation}
+and
+\begin{equation}
+  \Delta_1=
+  -\left(1-\lambda\right)m_k^2-\lambda M_k^2
+  +\lambda(1-\lambda)M_l^2
+  +\lambda(1-\lambda x)p^2,
+  \qquad
+  \lambda=\frac{y}{1-x}.
+\end{equation}
+At the current stage the two-loop targets use
+\begin{equation}
+  \WL{precisionGoal = 10},\qquad \WL{epsOrder = 4},
+\end{equation}
+and compare the powers
+\begin{equation}
+  \eps^{-2},\eps^{-1},\eps^0.
+\end{equation}
+This is still a modest run, but it should include the finite coefficient.
+
+The first completed run with the older \(p^2=-3\) point produced a leading
+coefficient exactly one half of the closed-form value. The comparison scripts
+therefore now print an inferred leading-pole normalization,
+\begin{equation}
+  \frac{[\eps^{-2}]\mathcal I_{\mathrm{disc}}}
+       {[\eps^{-2}]\mathcal I_{\mathrm{closed}}},
+\end{equation}
+and expose a variable \WL{doubleCutNormalization}. It is initially set to
+\(1\). If the light-like rerun again gives a constant factor \(1/2\), set
+\WL{doubleCutNormalization = 1/2} in the comparison script and rerun only the
+post-processing comparison. No AMFlow recomputation is needed for that
+normalization check.
+
+The recommended debugging order is:
+\begin{verbatim}
+./run.sh twoloop-kernel-uncut-pp
+\end{verbatim}
+If that succeeds, try the remaining pieces or the fresh full check:
+\begin{verbatim}
+./run.sh compare-twoloop
+\end{verbatim}
+For quick post-processing after all four sign pieces have already been
+exported, use:
+\begin{verbatim}
+./run.sh compare-twoloop-from-files
+\end{verbatim}
+The file-based comparison can read stale data, so it should not be used after
+changing the kinematic point or \(\eps\)-order unless all four pieces were
+rerun.
+
+
+\end{document}
