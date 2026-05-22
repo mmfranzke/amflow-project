@@ -1,9 +1,11 @@
 (* targets/RunBubble.wl
    Ordinary bubble sanity check for the AMFlow installation. *)
 
-Get["/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/config/LoadAMFlow.wl"];
-Get[FileNameJoin[{$ProjectDirectory, "config", "AMFlowOptions.wl"}]];
-Get[FileNameJoin[{$ProjectDirectory, "families", "BubbleFamily.wl"}]];
+projectDir = DirectoryName[DirectoryName[$InputFileName]];
+
+Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
+Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];
+Get[FileNameJoin[{projectDir, "families", "BubbleFamily.wl"}]];
 
 SetBasicAMFlowOptions[4];
 DefineBubbleFamily[];

@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -x "/Applications/Mathematica.app/Contents/MacOS/MathKernel" ]; then
+if command -v WolframKernel >/dev/null 2>&1; then
+  KERNEL="$(command -v WolframKernel)"
+elif command -v MathKernel >/dev/null 2>&1; then
+  KERNEL="$(command -v MathKernel)"
+elif command -v wolfram >/dev/null 2>&1; then
+  KERNEL="$(command -v wolfram)"
+elif command -v math >/dev/null 2>&1; then
+  KERNEL="$(command -v math)"
+elif [ -x "/Applications/Mathematica.app/Contents/MacOS/MathKernel" ]; then
   KERNEL="/Applications/Mathematica.app/Contents/MacOS/MathKernel"
 elif [ -x "/Applications/Wolfram.app/Contents/MacOS/WolframKernel" ]; then
   KERNEL="/Applications/Wolfram.app/Contents/MacOS/WolframKernel"
 else
   echo "Could not find Mathematica/Wolfram kernel."
+  echo "On Euler, load the Mathematica module first, e.g. module load <mathematica-module>."
   exit 1
 fi
 

@@ -2,10 +2,12 @@
    Fresh one-loop check: computes F+, J-, and compares directly.
    This avoids stale exported result files. *)
 
-Get["/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/config/LoadAMFlow.wl"];
-Get[FileNameJoin[{$ProjectDirectory, "config", "AMFlowOptions.wl"}]];
-Get[FileNameJoin[{$ProjectDirectory, "families", "OneLoopKernelUncutPlusFamily.wl"}]];
-Get[FileNameJoin[{$ProjectDirectory, "families", "OneLoopKernelUncutMinusFamily.wl"}]];
+projectDir = DirectoryName[DirectoryName[$InputFileName]];
+
+Get[projectDir, "config", "LoadAMFlow.wl"];
+Get[projectDir, "config", "AMFlowOptions.wl"}]];
+Get[FileNameJoin[{projectDir, "families", "OneLoopKernelUncutPlusFamily.wl"}]];
+Get[FileNameJoin[{projectDir, "families", "OneLoopKernelUncutMinusFamily.wl"}]];
 
 SetBasicAMFlowOptions[4];
 

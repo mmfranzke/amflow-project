@@ -2,9 +2,11 @@
    Diagnostic direct cut-linear attempt.
    Kept to document the route that currently fails in AMFlow. *)
 
-Get["/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/config/LoadAMFlow.wl"];
-Get[FileNameJoin[{$ProjectDirectory, "config", "AMFlowOptions.wl"}]];
-Get[FileNameJoin[{$ProjectDirectory, "families", "OneLoopKernelDirectCutFamily.wl"}]];
+projectDir = DirectoryName[DirectoryName[$InputFileName]];
+
+Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
+Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];
+Get[FileNameJoin[{projectDir, "families", "OneLoopKernelDirectCutFamily.wl"}]];
 
 SetBasicAMFlowOptions[4];
 DefineOneLoopKernelDirectCutFamily[];

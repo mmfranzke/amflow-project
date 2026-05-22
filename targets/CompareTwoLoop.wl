@@ -2,10 +2,12 @@
    Fresh two-loop check: computes PP, PM, MP, MM and compares the double
    discontinuity to the analytic closed form at one light-like point. *)
 
-Get["/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/config/LoadAMFlow.wl"];
-Get[FileNameJoin[{$ProjectDirectory, "config", "AMFlowOptions.wl"}]];
-Get[FileNameJoin[{$ProjectDirectory, "families", "TwoLoopKernelUncutFamilies.wl"}]];
-Get[FileNameJoin[{$ProjectDirectory, "targets", "TwoLoopKernelTargetTools.wl"}]];
+projectDir = DirectoryName[DirectoryName[$InputFileName]];
+
+Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
+Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];
+Get[FileNameJoin[{projectDir, "families", "TwoLoopKernelUncutFamilies.wl"}]];
+Get[FileNameJoin[{projectDir, "targets", "TwoLoopKernelTargetTools.wl"}]];
 
 SetBasicAMFlowOptions[4];
 

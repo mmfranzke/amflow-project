@@ -2,9 +2,11 @@
    Computes J- with the uncut -L+i0 linear denominator.
    This is one piece of the discontinuity reconstruction, not the delta kernel. *)
 
-Get["/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project/config/LoadAMFlow.wl"];
-Get[FileNameJoin[{$ProjectDirectory, "config", "AMFlowOptions.wl"}]];
-Get[FileNameJoin[{$ProjectDirectory, "families", "OneLoopKernelUncutMinusFamily.wl"}]];
+projectDir = DirectoryName[DirectoryName[$InputFileName]];
+
+Get[FileNameJoin[{projectDir, "config", "LoadAMFlow.wl"}]];
+Get[FileNameJoin[{projectDir, "config", "AMFlowOptions.wl"}]];
+Get[FileNameJoin[{projectDir, "families", "OneLoopKernelUncutMinusFamily.wl"}]];
 
 SetBasicAMFlowOptions[4];
 DefineOneLoopKernelUncutMinusFamily[];

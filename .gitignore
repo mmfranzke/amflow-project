@@ -23,3 +23,4 @@ cache/
 *_amflow/
 BlackBox/
 blackbox/
+config/LocalPaths.wl
