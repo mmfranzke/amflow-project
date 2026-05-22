@@ -16,7 +16,7 @@ targets = {
 
 (* epsOrder = 3 is enough for the setup check and finite terms. *)
 precisionGoal = 20;
-epsOrder = 4;
+epsOrder = 3;
 
 Print["Targets: ", targets];
 Print["Precision goal: ", precisionGoal];

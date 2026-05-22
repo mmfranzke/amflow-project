@@ -30,18 +30,37 @@ If[! DirectoryQ[$AMFlowDirectory],
   Abort[];
 ];
 
-AppendTo[$Path, $AMFlowDirectory];
-
 If[! FileExistsQ[$AMFlowPathsFile],
   Print["AMFlow paths file not found: ", $AMFlowPathsFile];
   Print["Set AMFLOW_PATHS_FILE if it lives somewhere else."];
   Abort[];
 ];
 
+If[! MemberQ[$Path, $AMFlowDirectory],
+  AppendTo[$Path, $AMFlowDirectory]
+];
+
 (* Adds FiniteFlow, LiteIBP, LiteRed, and dynamic-library paths. *)
 Get[$AMFlowPathsFile];
 
+Print["Dependency check before loading AMFlow:"];
+Print["  FiniteFlow.m: ", FindFile["FiniteFlow.m"]];
+Print["  LiteIBP.m: ", FindFile["LiteIBP.m"]];
+Print["  LiteRed.m: ", FindFile["LiteRed.m"]];
+Print["  fflowmlink.so: ", FileNames["fflowmlink.so", $LibraryPath]];
+Print["  fflowmlink.dylib: ", FileNames["fflowmlink.dylib", $LibraryPath]];
+
 Get["AMFlow.m"];
+
+(* Re-apply after AMFlow loading in case AMFlow changed $Path/$LibraryPath. *)
+Get[$AMFlowPathsFile];
+
+Print["Dependency check after loading AMFlow:"];
+Print["  FiniteFlow.m: ", FindFile["FiniteFlow.m"]];
+Print["  LiteIBP.m: ", FindFile["LiteIBP.m"]];
+Print["  LiteRed.m: ", FindFile["LiteRed.m"]];
+Print["  fflowmlink.so: ", FileNames["fflowmlink.so", $LibraryPath]];
+Print["  fflowmlink.dylib: ", FileNames["fflowmlink.dylib", $LibraryPath]];
 
 Print["Loaded AMFlow from: ", $AMFlowDirectory];
 Print["Project directory: ", $ProjectDirectory];
@@ -49,6 +68,5 @@ Print["Project directory: ", $ProjectDirectory];
 $ResultsDirectory = FileNameJoin[{$ProjectDirectory, "results"}];
 $LogsDirectory = FileNameJoin[{$ProjectDirectory, "logs"}];
 
-(* Targets export machine-readable results and text snapshots here. *)
 If[! DirectoryQ[$ResultsDirectory], CreateDirectory[$ResultsDirectory]];
 If[! DirectoryQ[$LogsDirectory], CreateDirectory[$LogsDirectory]];
