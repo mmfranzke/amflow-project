@@ -16,12 +16,12 @@ precisionGoal = 10;
 epsOrder = 4;
 coeffPowers = {-2, -1, 0};
 
-(* Same numerical point as TwoLoopKernelUncutFamilies.wl. *)
+(* Analytic comparison point. It must match TwoLoopKernelUncutFamilies.wl. *)
 xval = 3/10;
 yval = 1/4;
 sval = 0;
 ml2val = 49/100;
-Ml2val = 4;
+Ml2val = 1;
 mk2val = 1/4;
 Mk2val = 81/100;
 
@@ -31,10 +31,27 @@ lamval = yval/Xval;
 delta0 =
   (1 - xval) ml2val + xval Ml2val - xval (1 - xval) sval;
 
-delta1 =
-  -((1 - lamval) mk2val + lamval Mk2val)
-  + lamval (1 - lamval) Ml2val
-  + lamval (1 - lamval xval) sval;
+(* Current analytic comparison scale. *)
+delta1Current =
+  ((1 - lamval) mk2val + lamval Mk2val)
+  - lamval (1 - lamval) Ml2val
+  - lamval (1 - lamval xval) sval;
+
+(* Effective scale from the AMFlow routing:
+   D3 = k^2 - mk2, D4 = (l+k-p)^2 - Mk2, q = l-p,
+   n.q = x-1, and lambda = y/(1-x). *)
+delta1FromRouting =
+  ((1 - lamval) mk2val + lamval Mk2val)
+  - lamval (1 - lamval) Ml2val
+  - lamval (1 - lamval xval) sval;
+
+delta1 = delta1Current;
+
+deltaSign[name_, value_] := Which[
+  N[value] > 0, name <> " > 0",
+  N[value] < 0, name <> " < 0",
+  True, name <> " = 0"
+];
 
 (* Tiny -i0 regulator fixes the branch for negative scales. *)
 etaReg = 10^-30;
@@ -58,8 +75,16 @@ Print["Epsilon order: ", epsOrder];
 Print["Compared coefficient powers: ", coeffPowers];
 Print["Kinematic point: x=", xval, ", y=", yval, ", s=p^2=", sval];
 Print["Mass squares: ml2=", ml2val, ", Ml2=", Ml2val, ", mk2=", mk2val, ", Mk2=", Mk2val];
-Print["Delta0: ", delta0];
-Print["Delta1: ", delta1];
+Print["lambda = y/(1-x): ", lamval];
+Print["Delta0 analytic scale: ", delta0, " (", deltaSign["Delta0", delta0], ")"];
+Print["Delta0 numeric: ", N[delta0, 30]];
+Print["Delta1 currently used: ", delta1Current, " (", deltaSign["Delta1", delta1Current], ")"];
+Print["Delta1 currently used numeric: ", N[delta1Current, 30]];
+Print["Delta1 from routing formula: ", delta1FromRouting, " (", deltaSign["Delta1 routing", delta1FromRouting], ")"];
+Print["Delta1 from routing numeric: ", N[delta1FromRouting, 30]];
+Print["Delta1 current - routing: ", N[delta1Current - delta1FromRouting, 30]];
+Print["Routing formula: ((1-lambda) mk2 + lambda Mk2) - lambda (1-lambda) Ml2 - lambda (1-lambda x) s"];
+Print["Check that the family Numeric point printed below matches this analytic point."];
 Print["Analytic expression:"];
 Print[analyticExpr];
 
@@ -117,8 +142,7 @@ comparison =
         "amflow" -> cAM,
         "analytic" -> cAN,
         "difference" -> N[cAM - cAN, 30],
-        "ratio" -> N[cAM/cAN, 30],
-        ""
+        "ratio" -> N[cAM/cAN, 30]
       |>
     ],
     {p, coeffPowers}
@@ -143,6 +167,10 @@ fullResult =
       "Mk2" -> Mk2val,
       "Delta0" -> delta0,
       "Delta1" -> delta1,
+      "Delta1Current" -> delta1Current,
+      "Delta1FromRouting" -> delta1FromRouting,
+      "Delta0Sign" -> deltaSign["Delta0", delta0],
+      "Delta1Sign" -> deltaSign["Delta1", delta1],
       "doubleCutNormalization" -> doubleCutNormalization,
       "inferredLeadingNormalization" -> inferredLeadingNormalization
     |>,

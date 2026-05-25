@@ -24,9 +24,22 @@ DefineOneLoopKernelAuxDenFamily[familySymbol_, sign_] := Module[{},
     p n -> 1
   };
 
-  (* D4 is auxiliary and is called with exponent 0:
+  Print[
+    "Unsupported check: AMFlow's GaugeLink completeness check counts the ",
+    "zero-power auxiliary denominator after linear-denominator squaring. ",
+    "For this one-loop family there are only three independent scalar products, ",
+    "so the four-denominator auxiliary test aborts before solving."
+  ];
+  Print[
+    "Use the ordinary uncut plus/minus targets instead: ",
+    "oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, or compare-oneloop."
+  ];
+  Abort[];
+
+  (* Kept below as documentation of the attempted unsupported check.
+     D4 is auxiliary and would be called with exponent 0:
      j[family, 1, 1, 1, 0].
-     The physical denominator set is still D1, D2, and L. *)
+     AMFlow still includes it in CheckCompleteness. *)
   AMFlowInfo["Propagator"] = {
     l^2 - m2,
     (l + p)^2 - M2,

@@ -60,12 +60,11 @@ DefineTwoLoopKernelUncutFamily[familySymbol_, sx_, sy_] := Module[{},
     1, 1
   };
 
-  (* Light-like, phase-safe point for debugging the discontinuity normalization.
-     Ml2 is deliberately large enough that Delta0 and Delta1 are both positive. *)
+  (* Branch-safe point: choose Ml2 small enough that Delta0 and Delta1 are positive. *)
   AMFlowInfo["Numeric"] = {
     s -> 0,
     ml2 -> 49/100,
-    Ml2 -> 4,
+    Ml2 -> 1,
     mk2 -> 1/4,
     Mk2 -> 81/100,
     x -> 3/10,
@@ -79,6 +78,10 @@ DefineTwoLoopKernelUncutFamily[familySymbol_, sx_, sy_] := Module[{},
     familySymbol,
     " with signs sx=", sx,
     ", sy=", sy
+  ];
+  Print[
+    "Two-loop family Numeric point: s=0, ml2=49/100, Ml2=1, ",
+    "mk2=1/4, Mk2=81/100, x=3/10, y=1/4"
   ];
 ];
 
