@@ -11,10 +11,10 @@ Get[FileNameJoin[{projectDir, "targets", "TwoLoopKernelTargetTools.wl"}]];
 
 SetBasicAMFlowOptions[4];
 
-(* epsOrder = 4 should include the finite coefficient for this two-loop test. *)
-precisionGoal = 10;
-epsOrder = 4;
-coeffPowers = {-2, -1, 0};
+(* Override with AMFLOW_PRECISION_GOAL and AMFLOW_EPS_ORDER for quick tests. *)
+precisionGoal = TwoLoopPrecisionGoal[10];
+epsOrder = TwoLoopEpsOrder[4];
+coeffPowers = TwoLoopCoeffPowers[epsOrder];
 
 (* Analytic comparison point. It must match TwoLoopKernelUncutFamilies.wl. *)
 xval = 3/10;

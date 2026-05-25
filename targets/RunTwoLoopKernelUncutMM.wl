@@ -10,5 +10,5 @@ Get[FileNameJoin[{projectDir, "targets", "TwoLoopKernelTargetTools.wl"}]];
 
 SetBasicAMFlowOptions[4];
 
-(* epsOrder = 4 should include the finite coefficient for this two-loop test. *)
-SolveTwoLoopKernelPiece["MM", 10, 4];
+(* Override with AMFLOW_PRECISION_GOAL and AMFLOW_EPS_ORDER for quick tests. *)
+SolveTwoLoopKernelPiece["MM", TwoLoopPrecisionGoal[10], TwoLoopEpsOrder[4]];

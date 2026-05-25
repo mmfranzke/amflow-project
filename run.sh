@@ -72,6 +72,7 @@ case "$TARGET" in
     # Computes the PP two-loop uncut GaugeLink piece.
     SCRIPT="$PROJECT_DIR/targets/RunTwoLoopKernelUncutPP.wl"
     ;;
+  
   twoloop-kernel-uncut-pm)
     # Computes the PM two-loop uncut GaugeLink piece.
     SCRIPT="$PROJECT_DIR/targets/RunTwoLoopKernelUncutPM.wl"
@@ -88,13 +89,19 @@ case "$TARGET" in
     # Fresh two-loop check: computes all four pieces and compares directly.
     SCRIPT="$PROJECT_DIR/targets/CompareTwoLoop.wl"
     ;;
+  compare-twoloop-quick)
+    # Cheap full smoke test: all four pieces, same eps order, low precision.
+    export AMFLOW_PRECISION_GOAL="${AMFLOW_PRECISION_GOAL:-6}"
+    export AMFLOW_EPS_ORDER="${AMFLOW_EPS_ORDER:-4}"
+    SCRIPT="$PROJECT_DIR/targets/CompareTwoLoop.wl"
+    ;;
   compare-twoloop-from-files)
     # Post-processes exported two-loop sign pieces to compare to the closed form.
     SCRIPT="$PROJECT_DIR/checks/CompareTwoLoopFromFiles.wl"
     ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, oneloop-kernel-aux-plus, oneloop-kernel-aux-minus, compare-oneloop-aux, compare-oneloop-aux-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-from-files"
+    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, oneloop-kernel-aux-plus, oneloop-kernel-aux-minus, compare-oneloop-aux, compare-oneloop-aux-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pp-quick, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-quick, compare-twoloop-from-files"
     exit 1
     ;;
 esac

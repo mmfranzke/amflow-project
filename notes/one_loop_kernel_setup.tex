@@ -632,13 +632,13 @@ phases while debugging the discontinuity normalization:
 and
 \begin{equation}
   m_l^2=\frac{49}{100},\qquad
-  M_l^2=4,\qquad
+  M_l^2=1,\qquad
   m_k^2=\frac14,\qquad
   M_k^2=\frac{81}{100}.
 \end{equation}
-This differs from the older Euclidean Python-check point. The larger value of
-\(M_l^2\) makes both \(\Delta_0\) and \(\Delta_1\) positive at \(p^2=0\), so
-the first AMFlow comparison is not mixed with a branch-cut phase test.
+This differs from the older Euclidean Python-check point. Both \(\Delta_0\)
+and \(\Delta_1\) are positive at this point, so the first AMFlow comparison is
+not mixed with a branch-cut phase test.
 The analytic comparison uses
 \begin{equation}
   \mathcal I_{\mathrm{closed}}
@@ -654,9 +654,9 @@ with
 and
 \begin{equation}
   \Delta_1=
-  -\left(1-\lambda\right)m_k^2-\lambda M_k^2
-  +\lambda(1-\lambda)M_l^2
-  +\lambda(1-\lambda x)p^2,
+  \left(1-\lambda\right)m_k^2+\lambda M_k^2
+  -\lambda(1-\lambda)M_l^2
+  -\lambda(1-\lambda x)p^2,
   \qquad
   \lambda=\frac{y}{1-x}.
 \end{equation}
@@ -669,6 +669,27 @@ and compare the powers
   \eps^{-2},\eps^{-1},\eps^0.
 \end{equation}
 This is still a modest run, but it should include the finite coefficient.
+
+For quick smoke tests, the same scripts can be run at lower precision while
+keeping the same \(\eps\)-order. The predefined shortcut
+\begin{verbatim}
+./run.sh compare-twoloop-quick
+\end{verbatim}
+sets
+\begin{equation}
+  \WL{precisionGoal = 6},\qquad \WL{epsOrder = 4},
+\end{equation}
+unless these values are overridden by environment variables. This should be
+used only to catch setup mistakes and coefficient-level problems at rough
+precision. A slightly more accurate check is, for example,
+\begin{verbatim}
+AMFLOW_PRECISION_GOAL=8 ./run.sh compare-twoloop-quick
+\end{verbatim}
+The single-piece shortcut
+\begin{verbatim}
+./run.sh twoloop-kernel-uncut-pp-quick
+\end{verbatim}
+is useful when testing whether one representative family still reduces.
 
 The first completed run with the older \(p^2=-3\) point produced a leading
 coefficient exactly one half of the closed-form value. The comparison scripts

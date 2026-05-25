@@ -7,6 +7,10 @@ ClearAll[
   TwoLoopKernelFamilySymbol,
   TwoLoopKernelTarget,
   TwoLoopKernelResultBase,
+  TwoLoopEnvInteger,
+  TwoLoopPrecisionGoal,
+  TwoLoopEpsOrder,
+  TwoLoopCoeffPowers,
   SolveTwoLoopKernelPiece
 ];
 
@@ -27,6 +31,25 @@ TwoLoopKernelTarget[piece_] :=
 
 TwoLoopKernelResultBase[piece_] :=
   "twoloop_kernel_uncut_" <> ToLowerCase[piece] <> "_result";
+
+TwoLoopEnvInteger[name_, default_] := Module[
+  {value},
+
+  value = Environment[name];
+  If[StringQ[value] && StringMatchQ[value, DigitCharacter ..],
+    ToExpression[value],
+    default
+  ]
+];
+
+TwoLoopPrecisionGoal[default_: 10] :=
+  TwoLoopEnvInteger["AMFLOW_PRECISION_GOAL", default];
+
+TwoLoopEpsOrder[default_: 4] :=
+  TwoLoopEnvInteger["AMFLOW_EPS_ORDER", default];
+
+TwoLoopCoeffPowers[epsOrder_] :=
+  Range[-2, Max[-2, epsOrder - 4]];
 
 SolveTwoLoopKernelPiece[piece_, precisionGoal_, epsOrder_] := Module[
   {target, result, base},
