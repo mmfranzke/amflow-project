@@ -101,7 +101,7 @@ case "$TARGET" in
     ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, oneloop-kernel-aux-plus, oneloop-kernel-aux-minus, compare-oneloop-aux, compare-oneloop-aux-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pp-quick, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-quick, compare-twoloop-from-files"
+    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, oneloop-kernel-aux-plus, oneloop-kernel-aux-minus, compare-oneloop-aux, compare-oneloop-aux-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-quick, compare-twoloop-from-files"
     exit 1
     ;;
 esac

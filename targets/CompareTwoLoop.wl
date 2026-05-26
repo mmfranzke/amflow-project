@@ -106,10 +106,34 @@ pieceExprs =
     ]
   ];
 
-(* Product of the two one-dimensional discontinuity brackets:
-   [-I_Mx - I_Px] [-I_My - I_Py] gives the sum of all four sign pieces. *)
+Print["Two-loop piece expressions:"];
+Do[
+  Print[piece, " -> ", pieceExprs[piece]],
+  {piece, pieces}
+];
+
+(* Stored M pieces use denominators -L+i0. Therefore
+   integral[1/(L-i0)] = - stored M. The physical bracket
+   (I_x^- - I_x^+) (I_y^- - I_y^+) is represented by the stored sum. *)
+rawPieceCombination =
+  pieceExprs["PP"] + pieceExprs["PM"] + pieceExprs["MP"] + pieceExprs["MM"];
+
+(* Diagnostic only: this would be the sign pattern if PM and MP were already
+   physical L-i0 pieces rather than stored -L+i0 pieces. *)
+altSignedPieceCombination =
+  pieceExprs["PP"] - pieceExprs["PM"] - pieceExprs["MP"] + pieceExprs["MM"];
+
+discontinuityPrefactor = 1/(2 Pi I)^2;
+
+Print["Raw stored-piece combination PP + PM + MP + MM:"];
+Print[rawPieceCombination];
+Print["Alternate diagnostic combination PP - PM - MP + MM:"];
+Print[altSignedPieceCombination];
+Print["Double-discontinuity prefactor:"];
+Print[discontinuityPrefactor];
+
 rawDiscExpr =
-  Total[Values[pieceExprs]]/(2 Pi I)^2;
+  discontinuityPrefactor rawPieceCombination;
 
 (* Keep this explicit. The old s=-3 run showed a leading-pole ratio 1/2,
    so rerun compare-twoloop-from-files with doubleCutNormalization = 1/2
@@ -129,6 +153,10 @@ Print["Double-discontinuity expression:"];
 Print[discExpr];
 Print["doubleCutNormalization used: ", doubleCutNormalization];
 Print["Inferred leading-pole normalization raw/analytic: ", inferredLeadingNormalization];
+Print["Analytic expression:"];
+Print[analyticExpr];
+Print["Half analytic expression:"];
+Print[analyticExpr/2];
 
 comparison =
   Table[
@@ -150,6 +178,27 @@ comparison =
 
 Print["Coefficient comparison:"];
 Print[comparison];
+
+halfAnalyticComparison =
+  Table[
+    With[
+      {
+        cAM = N[Coefficient[discExpr, eps, p], 30],
+        cHalf = N[Coefficient[analyticExpr/2, eps, p], 30]
+      },
+      <|
+        "power" -> p,
+        "amflow" -> cAM,
+        "halfAnalytic" -> cHalf,
+        "differenceFromHalfAnalytic" -> N[cAM - cHalf, 30],
+        "ratioToHalfAnalytic" -> N[cAM/cHalf, 30]
+      |>
+    ],
+    {p, coeffPowers}
+  ];
+
+Print["Comparison against half of the analytic expression:"];
+Print[halfAnalyticComparison];
 
 fullResult =
   <|
@@ -176,10 +225,14 @@ fullResult =
     |>,
     "pieceResults" -> pieceResults,
     "pieceExpressions" -> pieceExprs,
+    "rawStoredPieceCombination" -> rawPieceCombination,
+    "alternateSignedPieceCombination" -> altSignedPieceCombination,
+    "doubleDiscontinuityPrefactor" -> discontinuityPrefactor,
     "rawDoubleDiscontinuityExpression" -> rawDiscExpr,
     "doubleDiscontinuityExpression" -> discExpr,
     "analyticExpression" -> analyticExpr,
-    "comparison" -> comparison
+    "comparison" -> comparison,
+    "halfAnalyticComparison" -> halfAnalyticComparison
   |>;
 
 Export[

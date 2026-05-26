@@ -83,6 +83,14 @@ DefineTwoLoopKernelUncutFamily[familySymbol_, sx_, sy_] := Module[{},
     "Two-loop family Numeric point: s=0, ml2=49/100, Ml2=1, ",
     "mk2=1/4, Mk2=81/100, x=3/10, y=1/4"
   ];
+  Print[
+    "Physical denominators: {l^2-ml2, (l-p)^2-Ml2, ",
+    "k^2-mk2, (l+k-p)^2-Mk2}"
+  ];
+  Print[
+    "Linear GaugeLink denominators: Lx=", sx (x - n l),
+    ", Ly=", sy (y - n k)
+  ];
 ];
 
 DefineTwoLoopKernelUncutPPFamily[] :=
