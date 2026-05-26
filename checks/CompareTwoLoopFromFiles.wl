@@ -74,20 +74,36 @@ xval = 3/10;
 yval = 1/4;
 sval = 0;
 ml2val = 49/100;
-Ml2val = 1;
+Ml2val = 4;
 mk2val = 1/4;
 Mk2val = 81/100;
 
 Xval = 1 - xval;
-lamval = yval/Xval;
+lambdaVal = yval/Xval;
+aVal = lambdaVal (1 - lambdaVal);
+bVal = lambdaVal (1 - lambdaVal xval);
 
-delta0 =
-  (1 - xval) ml2val + xval Ml2val - xval (1 - xval) sval;
+muLxVal = (1 - xval) ml2val + xval Ml2val;
+muKlambdaVal = (1 - lambdaVal) mk2val + lambdaVal Mk2val;
 
-delta1 =
-  ((1 - lamval) mk2val + lamval Mk2val)
-  - lamval (1 - lamval) Ml2val
-  - lamval (1 - lamval xval) sval;
+delta0 = muLxVal - xval (1 - xval) sval;
+
+deltaW = (
+  ((1 + aVal) xval (1 - xval) + bVal) sval
+  - muKlambdaVal
+  + aVal Ml2val
+  - (1 + aVal) muLxVal
+);
+
+delta1FromDeltaW = (1 + aVal) delta0 + deltaW;
+
+delta1Final = (
+  -muKlambdaVal
+  + lambdaVal (1 - lambdaVal) Ml2val
+  + lambdaVal (1 - lambdaVal xval) sval
+);
+
+delta1ConsistencyDifference = FullSimplify[delta1FromDeltaW - delta1Final];
 
 deltaSign[name_, value_] := Which[
   N[value] > 0, name <> " > 0",
@@ -101,9 +117,9 @@ analyticExpr =
   N[
     Normal[
       Series[
-        Gamma[eps]^2/Xval
-          (delta0 - I etaReg)^(-eps)
-          (delta1 - I etaReg)^(-eps),
+        Gamma[eps]^2/Xval *
+          (delta0 - I etaReg)^(-eps) *
+          (delta1Final - I etaReg)^(-eps),
         {eps, 0, 0}
       ]
     ],
@@ -161,15 +177,28 @@ halfAnalyticComparison =
     {p, coeffPowers}
   ];
 
-Print["Delta0: ", delta0, " (", deltaSign["Delta0", delta0], ")"];
-Print["Delta1: ", delta1, " (", deltaSign["Delta1", delta1], ")"];
+Print["Kinematic point: x=", xval, ", y=", yval, ", s=p^2=", sval];
+Print["Mass squares: ml2=", ml2val, ", Ml2=", Ml2val, ", mk2=", mk2val, ", Mk2=", Mk2val];
+Print["lambda = y/(1-x): ", lambdaVal];
+Print["a = lambda (1-lambda): ", aVal];
+Print["b = lambda (1-lambda x): ", bVal];
+Print["muLx = (1-x) ml2 + x Ml2: ", muLxVal];
+Print["muKlambda = (1-lambda) mk2 + lambda Mk2: ", muKlambdaVal];
+Print["delta0: ", delta0, " (", deltaSign["delta0", delta0], ")"];
+Print["deltaW: ", deltaW];
+Print["delta1FromDeltaW = (1+a) delta0 + deltaW: ", delta1FromDeltaW];
+Print["delta1Final = -muKlambda + lambda (1-lambda) Ml2 + lambda (1-lambda x) s: ", delta1Final, " (", deltaSign["delta1Final", delta1Final], ")"];
+Print["delta1FromDeltaW - delta1Final: ", delta1ConsistencyDifference];
+If[delta1ConsistencyDifference =!= 0,
+  Print["WARNING: delta1FromDeltaW != delta1Final after FullSimplify"];
+];
 Print["Analytic expression:"];
 Print[analyticExpr];
-Print["Half analytic expression:"];
+Print["Half analytic expression (diagnostic only, not physics):"];
 Print[analyticExpr/2];
 Print["Two-loop comparison from exported files:"];
 Print[comparison];
-Print["Comparison against half of the analytic expression:"];
+Print["Comparison against half of the analytic expression (diagnostic only, not physics):"];
 Print[halfAnalyticComparison];
 Print["doubleCutNormalization used: ", doubleCutNormalization];
 Print["Inferred leading-pole normalization raw/analytic: ", inferredLeadingNormalization];
@@ -186,10 +215,18 @@ Export[
       "Ml2" -> Ml2val,
       "mk2" -> mk2val,
       "Mk2" -> Mk2val,
-      "Delta0" -> delta0,
-      "Delta1" -> delta1,
-      "Delta0Sign" -> deltaSign["Delta0", delta0],
-      "Delta1Sign" -> deltaSign["Delta1", delta1],
+      "lambda" -> lambdaVal,
+      "a" -> aVal,
+      "b" -> bVal,
+      "muLx" -> muLxVal,
+      "muKlambda" -> muKlambdaVal,
+      "delta0" -> delta0,
+      "deltaW" -> deltaW,
+      "delta1FromDeltaW" -> delta1FromDeltaW,
+      "delta1Final" -> delta1Final,
+      "delta1ConsistencyDifference" -> delta1ConsistencyDifference,
+      "delta0Sign" -> deltaSign["delta0", delta0],
+      "delta1FinalSign" -> deltaSign["delta1Final", delta1Final],
       "doubleCutNormalization" -> doubleCutNormalization,
       "inferredLeadingNormalization" -> inferredLeadingNormalization
     |>,

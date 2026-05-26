@@ -64,7 +64,7 @@ DefineTwoLoopKernelUncutFamily[familySymbol_, sx_, sy_] := Module[{},
   AMFlowInfo["Numeric"] = {
     s -> 0,
     ml2 -> 49/100,
-    Ml2 -> 1,
+    Ml2 -> 4,
     mk2 -> 1/4,
     Mk2 -> 81/100,
     x -> 3/10,
@@ -80,7 +80,7 @@ DefineTwoLoopKernelUncutFamily[familySymbol_, sx_, sy_] := Module[{},
     ", sy=", sy
   ];
   Print[
-    "Two-loop family Numeric point: s=0, ml2=49/100, Ml2=1, ",
+    "Two-loop family Numeric point: s=0, ml2=49/100, Ml2=4, ",
     "mk2=1/4, Mk2=81/100, x=3/10, y=1/4"
   ];
   Print[
