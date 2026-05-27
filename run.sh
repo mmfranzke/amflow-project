@@ -99,9 +99,33 @@ case "$TARGET" in
     # Post-processes exported two-loop sign pieces to compare to the closed form.
     SCRIPT="$PROJECT_DIR/checks/CompareTwoLoopFromFiles.wl"
     ;;
+  compare-ksubloop)
+    # Cheap full smoke test: all four pieces, same eps order, low precision.
+    export AMFLOW_PRECISION_GOAL="${AMFLOW_PRECISION_GOAL:-6}"
+    export AMFLOW_EPS_ORDER="${AMFLOW_EPS_ORDER:-4}"
+    SCRIPT="$PROJECT_DIR/targets/CompareKSubloop.wl"
+    ;;
+  outer-eq29-plus)
+    # Computes the +L GaugeLink piece for the direct Eq. (29) outer integral.
+    export AMFLOW_PRECISION_GOAL="${AMFLOW_PRECISION_GOAL:-6}"
+    export AMFLOW_EPS_ORDER="${AMFLOW_EPS_ORDER:-4}"
+    SCRIPT="$PROJECT_DIR/targets/RunOuterEq29Plus.wl"
+    ;;
+  outer-eq29-minus)
+    # Computes the -L GaugeLink piece for the direct Eq. (29) outer integral.
+    export AMFLOW_PRECISION_GOAL="${AMFLOW_PRECISION_GOAL:-6}"
+    export AMFLOW_EPS_ORDER="${AMFLOW_EPS_ORDER:-4}"
+    SCRIPT="$PROJECT_DIR/targets/RunOuterEq29Minus.wl"
+    ;;
+  compare-outer-eq29)
+    # Fresh direct Eq. (29) check: computes +L, -L, and compares to Eq. (51)/(53).
+    export AMFLOW_PRECISION_GOAL="${AMFLOW_PRECISION_GOAL:-6}"
+    export AMFLOW_EPS_ORDER="${AMFLOW_EPS_ORDER:-4}"
+    SCRIPT="$PROJECT_DIR/targets/CompareOuterEq29.wl"
+    ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, oneloop-kernel-aux-plus, oneloop-kernel-aux-minus, compare-oneloop-aux, compare-oneloop-aux-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-quick, compare-twoloop-from-files"
+    echo "Allowed: bubble, oneloop-kernel-direct-cut, oneloop-kernel-uncut-plus, oneloop-kernel-uncut-minus, compare-oneloop, compare-oneloop-direct-cut, compare-oneloop-from-files, oneloop-kernel-aux-plus, oneloop-kernel-aux-minus, compare-oneloop-aux, compare-oneloop-aux-from-files, twoloop-kernel-uncut-pp, twoloop-kernel-uncut-pm, twoloop-kernel-uncut-mp, twoloop-kernel-uncut-mm, compare-twoloop, compare-twoloop-quick, compare-twoloop-from-files, compare-ksubloop, outer-eq29-plus, outer-eq29-minus, compare-outer-eq29"
     exit 1
     ;;
 esac
