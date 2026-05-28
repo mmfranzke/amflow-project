@@ -37,6 +37,7 @@ __pycache__/
 logs/
 results/
 targets/cache/
+targets/output/
 cache/
 *_amflow/
 BlackBox/

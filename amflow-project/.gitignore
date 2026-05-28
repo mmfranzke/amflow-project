@@ -2,6 +2,7 @@
 logs/
 results/
 targets/cache/
+targets/output/
 cache/
 
 # Mathematica generated files
