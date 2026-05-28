@@ -1,0 +1,16 @@
+name: lsmethod
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - scipy
+  - mpmath
+  - pandas
+  - matplotlib
+  - jupyterlab
+  - ipykernel
+  - pytest
+  - pip
+  - pip:
+      - symbolica

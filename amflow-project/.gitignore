@@ -1,0 +1,26 @@
+# Logs and numerical outputs
+logs/
+results/
+targets/cache/
+cache/
+
+# Mathematica generated files
+*.mx
+*.nb~
+*.wl~
+*.wls~
+*.tmp
+
+# Mac metadata
+.DS_Store
+
+# Large archives / accidental dumps
+*.zip
+*.tar
+*.tar.gz
+
+# AMFlow/Firebase/FiniteFlow generated black-box directories
+*_amflow/
+BlackBox/
+blackbox/
+config/LocalPaths.wl

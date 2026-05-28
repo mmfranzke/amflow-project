@@ -1,0 +1,44 @@
+# Preserved metadata from the former nested amflow-project repository.
+.git-amflow-project-backup/
+
+# Local editor and OS files.
+.DS_Store
+.vscode/
+
+# Large archives and generated dumps.
+*.zip
+*.tar
+*.tar.gz
+
+# Python generated files.
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Mathematica and AMFlow generated files.
+*.mx
+*.nb~
+*.wl~
+*.wls~
+*.tmp
+
+# LaTeX generated files.
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
+logs/
+results/
+targets/cache/
+cache/
+*_amflow/
+BlackBox/
+blackbox/
+config/LocalPaths.wl

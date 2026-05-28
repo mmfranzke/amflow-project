@@ -1,0 +1,59 @@
+full_integral:
+  label: eq:fullI
+  code: null
+
+support:
+  label: eq:support-theta
+  code: lsmethod.kinematics.Kinematics.in_support
+
+lambda:
+  label: eq:lambda
+  code: lsmethod.kinematics.Kinematics.lam
+
+X_kappa:
+  label: eq:X-kappa-def
+  code:
+    - lsmethod.kinematics.Kinematics.X
+    - lsmethod.kinematics.Kinematics.kappa
+
+mu_l:
+  label: eq:mu-l-def
+  code:
+    - lsmethod.kinematics.Kinematics.mu_l_x
+    - lsmethod.kinematics.Kinematics.mu_l_u
+
+delta0:
+  label: eq:Delta0-final
+  code: lsmethod.kernels.delta0
+
+delta1:
+  label: eq:Delta1-final
+  code: lsmethod.kernels.delta1
+
+closed_form:
+  label: eq:closed-form-kernel
+  code: lsmethod.kernels.closed_form
+
+delta_w:
+  label: eq:method1-Delta0-Deltaw-def
+  code: lsmethod.kernels.delta_w
+
+delta_x_w:
+  label: eq:method1-Delta-x-def
+  code: lsmethod.kernels.delta_x_w
+
+method1_w_integral:
+  label: eq:method1-w-integral-before-euler
+  code: lsmethod.kernels.method1_w_integral
+
+C_u:
+  label: eq:C-u-def
+  code: lsmethod.kernels.C_u
+
+method2_u_integral:
+  label: eq:method1-u-representation
+  code: lsmethod.kernels.method2_u_integral
+
+convolution:
+  label: eq:two-loop-collinear-convolution
+  code: null

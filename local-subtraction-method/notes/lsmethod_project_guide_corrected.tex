@@ -1,0 +1,725 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{listings}
+
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\setlist[itemize]{topsep=3pt,itemsep=2pt}
+\setlist[enumerate]{topsep=3pt,itemsep=2pt}
+
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{black!30},
+  backgroundcolor=\color{black!2},
+  keepspaces=true,
+  showstringspaces=false
+}
+\lstset{style=code}
+
+\title{Guide to the \texttt{lsmethod} project structure}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Purpose of the project}
+
+The purpose of \texttt{lsmethod} is to make the local subtraction calculations reproducible. The project is meant to connect three things:
+\begin{enumerate}
+  \item the LaTeX derivation, with stable equation labels,
+  \item symbolic algebra checks, mainly with Symbolica,
+  \item numerical checks, mainly with \texttt{mpmath} and \texttt{pytest}.
+\end{enumerate}
+
+The current target object is the two-loop differential collinear kernel
+\begin{equation}
+  \mathcal I(x,y)
+\end{equation}
+with support
+\begin{equation}
+  0 \le x \le 1,\qquad 0 \le y \le 1-x.
+\end{equation}
+The code is not meant to replace the derivation. It is meant to test whether the different analytic representations of the same object agree.
+
+The relevant analytic logic is similar to the one-loop structure in the reference paper: a universal collinear kernel is integrated against a remaining hard or subgraph factor. In the paper this appears as
+\begin{equation}
+  I_G = \int dx\, I_c(x,m,M)G(x),
+\end{equation}
+and in the present two-loop setup the corresponding object is schematically
+\begin{equation}
+  I_G^{(2)} = \int_0^1 dx \int_0^{1-x} dy\, \mathcal I(x,y)G(x,y).
+\end{equation}
+The paper also emphasizes that integrated counterterms are simpler than the original diagram and can be used to extract singular dependence. This is the reason why the code starts by comparing reduced representations, rather than attempting a direct two-loop Minkowski integration.
+
+\section{High-level folder structure}
+
+The scaffold is organized as follows.
+
+\begin{lstlisting}
+lsmethod-scaffold/
+  README.md
+  environment.yml
+  pyproject.toml
+  .gitignore
+  .vscode/settings.json
+
+  src/lsmethod/
+    __init__.py
+    kinematics.py
+    kernels.py
+    numeric.py
+    equations.py
+    symbolica_backend.py
+    expansions.py
+
+  tests/
+    test_closed_vs_w.py
+    test_closed_vs_u.py
+    test_support_region.py
+    test_equation_registry.py
+
+  scripts/
+    check_closed_vs_w.py
+    check_closed_vs_u.py
+    scan_random_points.py
+
+  docs/
+    equation_map.yml
+
+  derivations/snippets/
+    double_collinear_labels.tex
+
+  symbolica/
+    check_import.py
+
+  cluster/
+    submit_scan.sh
+\end{lstlisting}
+
+The central rule is:
+\begin{quote}
+  Code that is reused goes into \texttt{src/lsmethod}. Code that is run manually goes into \texttt{scripts}. Automatic checks go into \texttt{tests}. LaTeX labels are mapped in \texttt{equations.py} and \texttt{docs/equation\_map.yml}.
+\end{quote}
+
+\section{The two setup files}
+
+\subsection{\texttt{environment.yml}}
+
+This file defines the conda or mamba environment. It specifies which Python version and which external packages should be installed.
+
+\begin{lstlisting}
+name: lsmethod
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - scipy
+  - mpmath
+  - pandas
+  - matplotlib
+  - jupyterlab
+  - ipykernel
+  - pytest
+  - pip
+  - pip:
+      - symbolica
+\end{lstlisting}
+
+Use it with
+\begin{lstlisting}
+mamba env create -f environment.yml
+mamba activate lsmethod
+\end{lstlisting}
+
+This is the reproducible numerical laboratory. If the code later runs on Euler, this file tells you which packages are needed.
+
+\subsection{\texttt{pyproject.toml}}
+
+This file defines the Python project itself. It says that the package is called \texttt{lsmethod}, that the code lives under \texttt{src}, and that \texttt{pytest} should look in the \texttt{tests} folder.
+
+\begin{lstlisting}
+[project]
+name = "lsmethod"
+version = "0.1.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+\end{lstlisting}
+
+The command
+\begin{lstlisting}
+python -m pip install -e .
+\end{lstlisting}
+installs the local package in editable mode. Editable mode means that changes in \texttt{src/lsmethod} are visible immediately, without reinstalling.
+
+The Python packaging guide describes \texttt{pyproject.toml} as the central configuration file for packaging tools and other project tools. Pytest can also read configuration from project-level files in the root of the repository.
+
+\section{The package \texttt{src/lsmethod}}
+
+\subsection{\texttt{kinematics.py}}
+
+This file stores one numerical phase-space point. The main object is
+\begin{lstlisting}
+@dataclass(frozen=True)
+class Kinematics:
+    x: mp.mpf
+    y: mp.mpf
+    p2: mp.mpf
+    ml: mp.mpf
+    Ml: mp.mpf
+    mk: mp.mpf
+    Mk: mp.mpf
+\end{lstlisting}
+
+A \texttt{dataclass} is a compact way of defining a class whose main purpose is to store data. Without \texttt{dataclass}, one would have to write the \texttt{\_\_init\_\_} method manually. With \texttt{frozen=True}, the object cannot be changed after creation. This is useful because a kinematic point should be fixed once it is passed to a kernel function.
+
+The fields mean
+\begin{equation}
+  x,\quad y,\quad p^2,\quad m_l,\quad M_l,\quad m_k,\quad M_k.
+\end{equation}
+The derived properties are
+\begin{align}
+  X &= 1-x,\\
+  \lambda &= \frac{y}{1-x},\\
+  \kappa &= \lambda(1-\lambda).
+\end{align}
+The mass combinations are
+\begin{align}
+  \mu_l^2(x) &= (1-x)m_l^2+xM_l^2,\\
+  \mu_l^2(u) &= u m_l^2+(1-u)M_l^2,\\
+  \mu_k^2(\lambda) &= (1-\lambda)m_k^2+\lambda M_k^2.
+\end{align}
+
+The reason for using a \texttt{Kinematics} object is that all formulas depend on the same variables. Instead of writing
+\begin{lstlisting}
+closed_form(x, y, p2, ml, Ml, mk, Mk, eps)
+\end{lstlisting}
+one writes
+\begin{lstlisting}
+closed_form(kin, eps)
+\end{lstlisting}
+where \texttt{kin} is the fixed point.
+
+\subsection{\texttt{mpmath} and \texttt{mp}}
+
+The line
+\begin{lstlisting}
+import mpmath as mp
+\end{lstlisting}
+imports \texttt{mpmath} under the shorter name \texttt{mp}. Mpmath is used because it supports arbitrary-precision real and complex arithmetic. This matters for endpoint-singular integrals, Gamma functions, and small values of \(\epsilon\).
+
+A typical setup is
+\begin{lstlisting}
+mp.mp.dps = 50
+x = mp.mpf("0.30")
+\end{lstlisting}
+Here \texttt{dps} means decimal places. It is better to write \texttt{mp.mpf("0.30")} instead of \texttt{mp.mpf(0.30)}, because the string version avoids first creating a standard double-precision Python float.
+
+\subsection{\texttt{kernels.py}}
+
+This is the central physics file. It contains the numerical implementations of the equations in the LaTeX file.
+
+The main functions are:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Function & Meaning & LaTeX label \\
+\midrule
+\texttt{delta0(kin)} & first effective scale & \texttt{eq:Delta0-final} \\
+\texttt{delta1(kin)} & second effective scale & \texttt{eq:Delta1-final} \\
+\texttt{closed\_form(kin, eps)} & compact kernel & \texttt{eq:closed-form-kernel} \\
+\texttt{delta\_w(kin)} & slope in \(\Delta_x(w)\) & \texttt{eq:method1-Delta0-Deltaw-def} \\
+\texttt{delta\_x\_w(kin,w)} & \(\Delta_x(w)\) & \texttt{eq:method1-Delta-x-def} \\
+\texttt{method1\_w\_integral} & Method 1 representation & \texttt{eq:method1-w-integral-before-euler} \\
+\texttt{C\_u(kin,u)} & Method 2 scale & \texttt{eq:C-u-def} \\
+\texttt{method2\_u\_integral} & Method 2 representation & \texttt{eq:method1-u-representation} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The function \texttt{closed\_form} implements
+\begin{equation}
+  \mathcal I_{\rm closed}(x,y;\epsilon)
+  = \frac{\Gamma(\epsilon)^2}{1-x}\,
+  \Theta_{xy}\,[\Delta_0-i0]^{-\epsilon}[\Delta_1-i0]^{-\epsilon}.
+\end{equation}
+The functions \texttt{method1\_w\_integral} and \texttt{method2\_u\_integral} implement two reduced parameter integrals that should agree with the closed form.
+
+\subsection{\texttt{numeric.py}}
+
+This file contains small utilities that are not specific to the physics formula.
+
+\begin{lstlisting}
+def relative_error(value, reference):
+    if abs(reference) == 0:
+        return abs(value - reference)
+    return abs((value - reference) / reference)
+\end{lstlisting}
+
+This compares two numerical values. It uses an absolute error if the reference is exactly zero.
+
+\begin{lstlisting}
+def quad_split(function, a, b, parts=4):
+    points = [a + (b - a) * i / parts for i in range(parts + 1)]
+    return mp.quad(function, points)
+\end{lstlisting}
+
+This splits an integral interval into subintervals. This is useful because integrands like
+\begin{equation}
+  u^{-1+\epsilon}(X-u)^{-1+\epsilon}
+\end{equation}
+are singular at endpoints for small positive \(\epsilon\).
+
+\subsection{\texttt{equations.py} and \texttt{docs/equation\_map.yml}}
+
+These files connect code names to LaTeX labels. Example:
+\begin{lstlisting}
+EQUATIONS = {
+    "delta0": "eq:Delta0-final",
+    "delta1": "eq:Delta1-final",
+    "closed_form": "eq:closed-form-kernel",
+}
+\end{lstlisting}
+
+The reason for labels is simple. Equation numbers change when the LaTeX document changes. Labels should remain stable. Therefore the code should never say \texttt{Eq. (25)}. It should say \texttt{eq:Delta1-final}.
+
+\subsection{\texttt{symbolica\_backend.py}}
+
+At the moment this file is only a placeholder:
+\begin{lstlisting}
+def check_symbolica_import():
+    import symbolica
+    return symbolica
+\end{lstlisting}
+
+The reason is that the numerical layer is already useful, while the symbolic layer should be built carefully. The intended future role of this file is to hold Symbolica expressions for \(\Delta_0\), \(\Delta_1\), \(\Delta_w\), \(C_u\), and their algebraic identities.
+
+\section{What does \texttt{pytest} do?}
+
+\subsection{The idea}
+
+\texttt{pytest} runs automatic checks. It looks for files whose names start with \texttt{test\_} and then runs functions whose names also start with \texttt{test\_}. In this project, the configuration is in \texttt{pyproject.toml}:
+\begin{lstlisting}
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+\end{lstlisting}
+This tells pytest:
+\begin{itemize}
+  \item look for tests in \texttt{tests},
+  \item when importing code, also look in \texttt{src}.
+\end{itemize}
+
+Run all tests with
+\begin{lstlisting}
+pytest
+\end{lstlisting}
+Run one test file with
+\begin{lstlisting}
+pytest tests/test_closed_vs_w.py
+\end{lstlisting}
+Run with verbose output using
+\begin{lstlisting}
+pytest -v
+\end{lstlisting}
+
+\subsection{What the current tests do}
+
+The current tests are smoke tests and structural tests. They check that the basic functions are importable and evaluable.
+
+\paragraph{\texttt{tests/test\_support\_region.py}}
+This checks that the closed form returns zero outside the support:
+\begin{equation}
+  y > 1-x \quad \Rightarrow \quad \mathcal I(x,y)=0.
+\end{equation}
+
+\paragraph{\texttt{tests/test\_equation\_registry.py}}
+This checks that important code names have LaTeX labels in \texttt{EQUATIONS}. It does not check the mathematics. It checks that the code-to-LaTeX map has not disappeared.
+
+\paragraph{\texttt{tests/test\_closed\_vs\_w.py}}
+This currently checks that the closed form and the Method 1 integral can both be evaluated at a Euclidean test point.
+
+\paragraph{\texttt{tests/test\_closed\_vs\_u.py}}
+This currently checks that the closed form and the Method 2 integral can both be evaluated at a Euclidean test point.
+
+A stronger future version should check equality within a tolerance:
+\begin{lstlisting}
+from lsmethod.numeric import relative_error
+
+assert relative_error(numeric, exact) < mp.mpf("1e-25")
+\end{lstlisting}
+This stricter test should be enabled once the formulas in the code and in the LaTeX file are finalized.
+
+\section{How to do simple checks}
+
+\subsection{Check that the package imports}
+
+From the project root:
+\begin{lstlisting}
+python -c "import lsmethod; print(lsmethod)"
+\end{lstlisting}
+
+\subsection{Check the Symbolica installation}
+
+\begin{lstlisting}
+python symbolica/check_import.py
+\end{lstlisting}
+
+\subsection{Evaluate one kinematic point}
+
+\begin{lstlisting}
+python scripts/check_closed_vs_w.py
+python scripts/check_closed_vs_u.py
+\end{lstlisting}
+These scripts print the closed form, the corresponding parameter-integral representation, and the relative error.
+
+\subsection{Run a small scan}
+
+\begin{lstlisting}
+python scripts/scan_random_points.py --npoints 20 --eps 0.08
+\end{lstlisting}
+This writes a CSV file to
+\begin{lstlisting}
+results/numeric_checks/scan.csv
+\end{lstlisting}
+The scan is useful for finding regions where numerical integration becomes unstable.
+
+\section{How to get symbolic output}
+
+There are two different goals:
+\begin{enumerate}
+  \item print the formula associated with a code function,
+  \item manipulate the formula symbolically and check identities.
+\end{enumerate}
+
+\subsection{Simple formula output}
+
+The simplest robust method is to store LaTeX strings for important equations. For example, one can create a file \texttt{src/lsmethod/formulas.py}:
+
+\begin{lstlisting}
+FORMULAS = {
+    "delta0": r"\Delta_0 = \mu_l^2(x)-x(1-x)p^2",
+    "delta1": r"\Delta_1 = \mu_k^2(\lambda)-\lambda(1-\lambda)M_l^2-\lambda(1-\lambda x)p^2",
+}
+
+
+def latex_formula(name):
+    return FORMULAS[name]
+\end{lstlisting}
+
+Then use
+\begin{lstlisting}
+from lsmethod.formulas import latex_formula
+print(latex_formula("delta1"))
+\end{lstlisting}
+This gives clean output for notes, notebooks, or Overleaf snippets. It does not do algebra.
+
+\subsection{Symbolica expressions}
+
+Symbolica should be used for actual symbolic manipulation. According to the Symbolica Python documentation, expressions can be built with \texttt{Expression.var}, parsed from strings with \texttt{Expression.parse}, and printed as LaTeX using \texttt{pretty\_str(latex=True)}.
+
+A future version of \texttt{symbolica\_backend.py} could look like:
+
+\begin{lstlisting}
+from symbolica import Expression
+
+
+def variables():
+    return Expression.vars("x", "y", "p2", "ml", "Ml", "mk", "Mk")
+
+
+def delta0_expr():
+    x, y, p2, ml, Ml, mk, Mk = variables()
+    mu_l_x = (1 - x) * ml**2 + x * Ml**2
+    return mu_l_x - x * (1 - x) * p2
+
+
+def print_delta0_latex():
+    print(delta0_expr().pretty_str(latex=True))
+\end{lstlisting}
+
+This has two advantages:
+\begin{itemize}
+  \item the symbolic expression is independent of a numerical point,
+  \item the same expression can be printed, simplified, substituted, or compared.
+\end{itemize}
+
+The safe project rule is:
+\begin{quote}
+  Numerical functions in \texttt{kernels.py} should have matching symbolic functions in \texttt{symbolica\_backend.py} whenever the expression is central to the derivation.
+\end{quote}
+
+\section{The actual numerical validation idea}
+
+\subsection{Internal consistency is not the final validation}
+
+The equality
+\begin{equation}
+  \mathcal I_{\rm closed}=\mathcal I_w=\mathcal I_u
+\end{equation}
+should not be presented as the main physics cross-check. It is an internal consistency and implementation check only.
+
+It verifies that three expressions already derived in the same calculation have been implemented consistently:
+\begin{itemize}
+  \item \(\mathcal I_w\) is the reduced Method 1 parameter representation,
+  \item \(\mathcal I_u\) is the reduced Method 2 parameter representation,
+  \item \(\mathcal I_{\rm closed}\) is the closed form obtained after the final analytic reduction.
+\end{itemize}
+
+This check is still useful. It can catch typos in prefactors, support factors, powers, and definitions such as \(\Delta_0\), \(\Delta_1\), \(\Delta_w\), or \(C_u\). But it does not prove that the final result is correct as a representation of the original two-loop integral. Since Method 1 and Method 2 have already been analytically matched, comparing their code implementations is a regression test, not an independent validation.
+
+\subsection{What is the actual goal?}
+
+The real goal is to validate the closed form against something outside the final derivation. There are three increasingly strong levels:
+\begin{enumerate}
+  \item Compare against less reduced representations that are closer to the original loop integral.
+  \item Compare integrated quantities against known results or known limiting cases.
+  \item If possible, compare against a direct numerical evaluation of the original differential integral with a controlled contour or Euclidean formulation.
+\end{enumerate}
+
+The project should therefore distinguish two types of checks:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Type & Example & Status \\
+\midrule
+Internal code check & \(\mathcal I_{\rm closed}=\mathcal I_w=\mathcal I_u\) & useful, but not independent \\
+External validation & compare to original integral or literature & actual physics check \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{What can be compared to the original integral?}
+
+The original object is the differential two-loop integral with two delta constraints. Schematically,
+\begin{equation}
+  \mathcal I(x,y)=
+  \int d^d l\,d^d k\,
+  \delta(x-l\cdot\eta)\delta(y-k\cdot\eta)
+  \frac{1}{D_lD_{p-l}D_kD_{p-l-k}}.
+\end{equation}
+
+A direct numerical integration of this expression on real Minkowski loop momenta is not a simple multidimensional real integral. The propagators carry \(i0\) prescriptions, and a naive real-axis integration will run into pole and contour issues. This is the same general reason why the paper separates singular counterterm integrals from finite remainders and discusses numerical evaluation only after the singular regions have been removed or analytically isolated.
+
+However, one can still move systematically closer to the original integral. A sensible chain of increasingly independent checks is:
+\begin{equation}
+  \text{original differential loop integral}
+  \to \text{residue representation before transverse integration}
+  \to \text{transverse integral representation}
+  \to \text{one-dimensional parameter representation}
+  \to \text{closed form}.
+\end{equation}
+
+The current code only starts near the end of this chain. To make the check more meaningful, the project should add earlier representations.
+
+\subsection{Recommended validation hierarchy}
+
+\paragraph{Level 0: smoke tests.}
+Check that all functions run and return finite complex numbers at safe Euclidean test points. This is not a mathematical validation. It only checks that the code is wired correctly.
+
+\paragraph{Level 1: internal regression tests.}
+Check
+\begin{equation}
+  \mathcal I_{\rm closed}=\mathcal I_w=\mathcal I_u.
+\end{equation}
+This is useful after every code or algebra edit, but it should be described as an internal consistency test.
+
+\paragraph{Level 2: symbolic identity checks.}
+Use Symbolica to verify algebraic relations that are used in the derivation, for example
+\begin{equation}
+  \Delta_x(w)=\Delta_0+w\Delta_w,
+\end{equation}
+\begin{equation}
+  \Delta_1=-\bigl[(1+\kappa)\Delta_0+\Delta_w\bigr],
+\end{equation}
+where the second identity depends on the sign conventions used in the file. These tests are more useful than purely numerical equality between already matched final representations because they test specific algebraic steps.
+
+\paragraph{Level 3: numerical check against an earlier representation.}
+Implement a representation before the final parameter integrations are done. For example, keep the expression after the light-cone residue step and do the remaining transverse or Feynman-parameter integrations numerically. This is closer to the original integral than the final closed form.
+
+A useful target is a representation where the \(\beta_k\) residue has been taken, but the transverse integrations have not yet been done analytically. Numerically integrating that object and comparing it to the closed form would be a stronger check than comparing \(\mathcal I_w\) and \(\mathcal I_u\).
+
+\paragraph{Level 4: integrated tests with simple hard functions.}
+The physically useful object is not only \(\mathcal I(x,y)\), but the convolution
+\begin{equation}
+  I_G^{(2)}=\int_0^1 dx\int_0^{1-x}dy\,\mathcal I(x,y)G(x,y).
+\end{equation}
+For test functions such as
+\begin{equation}
+  G(x,y)=1,
+\end{equation}
+\begin{equation}
+  G(x,y)=\frac{1}{1+x+y},
+\end{equation}
+one can integrate the closed form over \((x,y)\) and compare to a numerical integration using an earlier representation of \(\mathcal I(x,y)\). This checks not only pointwise formulas but also support, endpoint behavior, and integration stability.
+
+\paragraph{Level 5: literature and limiting checks.}
+Compare special limits against known results. Possible checks include:
+\begin{itemize}
+  \item recover the one-loop collinear kernel when one substructure is removed or replaced by a trivial hard factor,
+  \item compare the one-loop module against the paper's formula for \(I_c(x,m,M)\),
+  \item compare suitable integrated counterterms against the diagonal-box results in the paper after choosing the matching hard function and mass convention,
+  \item check small-mass limits against known logarithmic structures where available.
+\end{itemize}
+
+These are true external validations, because they compare your result against independently known information.
+
+\paragraph{Level 6: direct loop-momentum validation.}
+A direct numerical evaluation of the original differential integral would be the strongest check, but it is also the hardest. It would require a careful contour strategy or an equivalent Euclidean/Feynman-parameter formulation that preserves the delta constraints. This should not be the first numerical goal.
+
+\subsection{How the code should reflect this}
+
+The current scripts named \texttt{check\_closed\_vs\_w.py} and \texttt{check\_closed\_vs\_u.py} are useful, but their role should be renamed conceptually:
+\begin{itemize}
+  \item they are internal regression checks,
+  \item they are not the final validation of the result,
+  \item they should be supplemented by checks against earlier representations and known limits.
+\end{itemize}
+
+A better future script layout would be:
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Script & Purpose \\
+\midrule
+\texttt{check\_internal\_representations.py} & compare closed, \(w\), and \(u\) forms \\
+\texttt{check\_symbolic\_identities.py} & verify algebraic identities with Symbolica \\
+\texttt{check\_residue\_representation.py} & compare closed form to an earlier numerical representation \\
+\texttt{integrate\_test\_hard\_functions.py} & test convolutions with simple \(G(x,y)\) \\
+\texttt{compare\_literature\_limits.py} & test known limits or known integrated results \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Correct interpretation of the current tests}
+
+The current tests should be described as follows:
+\begin{quote}
+The tests verify that the implemented formulas for the closed form and the reduced parameter representations are mutually consistent. They are regression tests for the code and for algebraic transcription. They do not, by themselves, validate the closed form against the original two-loop integral.
+\end{quote}
+
+This is the important correction.
+
+\section{Recommended next code additions}
+
+\subsection{Make the tests stricter}
+
+After confirming the current formulas, replace the smoke tests by actual comparison tests:
+
+\begin{lstlisting}
+def test_closed_vs_w_numerically():
+    exact = closed_form(kin, eps)
+    numeric = method1_w_integral(kin, eps)
+    assert relative_error(numeric, exact) < mp.mpf("1e-25")
+\end{lstlisting}
+
+Do the same for \texttt{method2\_u\_integral}. If these fail, first inspect the relative errors printed by the scripts.
+
+\subsection{Add a symbolic expression module}
+
+Add \texttt{src/lsmethod/symbolic\_expressions.py} with Symbolica versions of the central expressions:
+\begin{itemize}
+  \item \(\Delta_0\),
+  \item \(\Delta_1\),
+  \item \(\Delta_w\),
+  \item \(\Delta_x(w)\),
+  \item \(C_u\).
+\end{itemize}
+
+Then add tests that check identities such as
+\begin{equation}
+  \Delta_1 = -\bigl[(1+\kappa)\Delta_0+\Delta_w\bigr].
+\end{equation}
+These are symbolic tests, not numerical tests.
+
+\subsection{Add a notebook only for exploration}
+
+A notebook is useful for interactive exploration, plots, and printing formulas. It should not be the only place where important code lives. If a calculation becomes important, move it into \texttt{src/lsmethod} or \texttt{tests}.
+
+\section{Daily workflow}
+
+A good working sequence is:
+\begin{enumerate}
+  \item Update the LaTeX derivation in Overleaf.
+  \item Make sure every central equation has a stable label.
+  \item Update the matching function in \texttt{src/lsmethod}.
+  \item Update \texttt{docs/equation\_map.yml} if a new equation is added.
+  \item Run \texttt{pytest}.
+  \item Run the relevant script in \texttt{scripts}.
+  \item Commit the change with Git.
+\end{enumerate}
+
+Example:
+\begin{lstlisting}
+pytest
+python scripts/check_closed_vs_w.py
+git add .
+git commit -m "Check closed form against w representation"
+\end{lstlisting}
+
+\section{Euler usage}
+
+The file \texttt{cluster/submit\_scan.sh} is a starting point for SLURM submission. It should not contain derivations. It should only activate the environment and run a script.
+
+\begin{lstlisting}
+sbatch cluster/submit_scan.sh
+\end{lstlisting}
+
+The script currently calls
+\begin{lstlisting}
+python scripts/scan_random_points.py --npoints 1000 --eps 0.08
+\end{lstlisting}
+For Euler, you may need to adapt the environment activation depending on how your conda or mamba installation is exposed on the cluster.
+
+\section{Summary}
+
+The project has four layers:
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Layer & Purpose \\
+\midrule
+LaTeX labels & stable reference for equations \\
+\texttt{src/lsmethod} & reusable implementation \\
+\texttt{tests} & automatic correctness checks \\
+\texttt{scripts} & manual runs, scans, and outputs \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The main numerical idea is to build a validation ladder. The equality
+\begin{equation}
+  \boxed{\mathcal I_{\rm closed}=\mathcal I_w=\mathcal I_u}
+\end{equation}
+is only the first internal regression check. The real validation is to compare the closed form to earlier representations of the original differential integral, to integrated test convolutions, and to known results or limits from the literature.
+
+\section*{References and documentation}
+
+\begin{itemize}
+  \item Anastasiou and Sterman, \emph{Removing infrared divergences from two-loop integrals}, arXiv:1812.03753.
+  \item Pytest documentation: \url{https://docs.pytest.org/en/stable/}
+  \item Python dataclasses documentation: \url{https://docs.python.org/3/library/dataclasses.html}
+  \item Mpmath documentation: \url{https://mpmath.org/doc/current/}
+  \item Python packaging guide for \texttt{pyproject.toml}: \url{https://packaging.python.org/en/latest/guides/writing-pyproject-toml/}
+  \item Symbolica Python API documentation: \url{https://symbolica.io/docs/guide/python_api.html}
+\end{itemize}
+
+\end{document}
