@@ -34,6 +34,18 @@ class TwoLoopPoint:
 
 
 POINTS = {
+    "branch_safe_rational": TwoLoopPoint(
+        name="branch_safe_rational",
+        p_plus=Fraction(1),
+        p_minus=Fraction(0),
+        p_perp2=Fraction(0),
+        x=Fraction(3, 10),
+        y=Fraction(1, 4),
+        ml2=Fraction(49, 100),
+        Ml2=Fraction(4),
+        mk2=Fraction(1, 4),
+        Mk2=Fraction(81, 100),
+    ),
     "equal_mass_onshell_branch": TwoLoopPoint(
         name="equal_mass_onshell_branch",
         p_plus=Fraction(1),

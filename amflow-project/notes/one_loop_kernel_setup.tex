@@ -9,7 +9,7 @@
 \newcommand{\ii}{\mathrm{i}}
 \newcommand{\eps}{\epsilon}
 \newcommand{\AMFlow}{\textsc{AMFlow}}
-\newcommand{\WL}[1]{\texttt{#1}}
+\newcommand{\WL}[1]{\texttt{\detokenize{#1}}}
 
 \title{AMFlow Project Log: Bubble, One-Loop, and Two-Loop Kernels}
 \author{}
@@ -43,9 +43,12 @@ two-loop GaugeLink pieces before increasing the requested Laurent order.
 
 The project directory is
 \begin{verbatim}
-/Users/FranzkeMM/Library/Mobile Documents/com~apple~CloudDocs/Documents/
-  Dokumente privat/Studium/ETH Zürich/Master Thesis/amflow-project
+/Users/FranzkeMM/Documents/Dokumente privat/Studium/ETH Zürich/
+  Master Thesis/master
 \end{verbatim}
+The AMFlow entry point is the subdirectory \WL{amflow-project}; the local
+Python comparison code is in the sibling subdirectory
+\WL{local-subtraction-method}.
 The AMFlow package is kept outside iCloud:
 \begin{verbatim}
 /Users/FranzkeMM/physics/tools/AMFlow
@@ -123,8 +126,17 @@ The active project files are:
         sign piece alone.
   \item \WL{targets/CompareTwoLoop.wl}: computes all four two-loop pieces,
         forms the double discontinuity, and compares to the closed form.
+  \item \WL{targets/CompareTwoLoopFixedEps.wl}: computes the original AMFlow
+        two-loop double-discontinuity expression once and evaluates the
+        resulting function of \(\eps\) at a fixed value or at an \(\eps\)-list.
   \item \WL{checks/CompareTwoLoopFromFiles.wl}: post-processes previously
         exported two-loop sign pieces.
+  \item \WL{../local-subtraction-method/scripts/two_loop_method3_mc_compare.py}:
+        Python driver for the Method-3 transverse numerical integral, the
+        Method-1/2 closed form, and optional AMFlow values.
+  \item \WL{../local-subtraction-method/src/lsmethod/method3.py}: numerical
+        implementation of the Method-3 three-dimensional \(k,l,\theta\)
+        integral.
 \end{itemize}
 The shell entry points are:
 \begin{verbatim}
@@ -144,7 +156,9 @@ The shell entry points are:
 ./run.sh twoloop-kernel-uncut-mp
 ./run.sh twoloop-kernel-uncut-mm
 ./run.sh compare-twoloop
+./run.sh compare-twoloop-fixed-eps
 ./run.sh compare-twoloop-from-files
+./run.sh two-loop-method3-mc-compare --all-points --eps 0.1 --amflow skip
 \end{verbatim}
 
 \subsection*{Target Reference}
@@ -222,10 +236,20 @@ The shell entry points are:
   discontinuity to the closed form.
 & Preferred target once the individual pieces reduce successfully. It avoids
   stale exported files. \\
+\WL{compare-twoloop-fixed-eps}
+& Fresh two-loop check evaluated at one fixed positive \(\eps\), or at a list
+  of \(\eps\)-values when \WL{TWO_LOOP_EPS_LIST} is set.
+& Used directly for fixed-\(\eps\) AMFlow checks and internally by
+  \WL{two-loop-method3-mc-compare}. It solves AMFlow once for the selected
+  point and then evaluates the resulting expression in \(\eps\). \\
 \WL{compare-twoloop-from-files}
 & Reads exported two-loop sign pieces and forms the same comparison.
 & Quick post-processing only. Use with care after changing kinematics or
   \(\eps\)-order. \\
+\WL{two-loop-method3-mc-compare}
+& Python comparison of Method 3, Method 1/2, and optionally AMFlow.
+& Use for fixed-\(\eps\) numerical checks, coefficient fits from several
+  positive \(\eps\)-values, and Method-3 integration diagnostics. \\
 \hline
 \end{tabular}
 \end{center}
@@ -632,7 +656,7 @@ phases while debugging the discontinuity normalization:
 and
 \begin{equation}
   m_l^2=\frac{49}{100},\qquad
-  M_l^2=1,\qquad
+  M_l^2=4,\qquad
   m_k^2=\frac14,\qquad
   M_k^2=\frac{81}{100}.
 \end{equation}
@@ -654,9 +678,9 @@ with
 and
 \begin{equation}
   \Delta_1=
-  \left(1-\lambda\right)m_k^2+\lambda M_k^2
-  -\lambda(1-\lambda)M_l^2
-  -\lambda(1-\lambda x)p^2,
+  -\left[(1-\lambda)m_k^2+\lambda M_k^2\right]
+  +\lambda(1-\lambda)M_l^2
+  +\lambda(1-x)p^2,
   \qquad
   \lambda=\frac{y}{1-x}.
 \end{equation}
@@ -669,6 +693,177 @@ and compare the powers
   \eps^{-2},\eps^{-1},\eps^0.
 \end{equation}
 This is still a modest run, but it should include the finite coefficient.
+
+\subsection{Method-3 Transverse Numerical Check}
+
+The target
+\begin{verbatim}
+./run.sh two-loop-method3-mc-compare
+\end{verbatim}
+is a Python-driven comparison target. It lives in
+\WL{../local-subtraction-method/scripts/two_loop_method3_mc_compare.py} and
+can compare three objects:
+\begin{enumerate}
+  \item the Method-3 transverse numerical representation;
+  \item the Method-1/2 closed form
+        \(\Gamma(\eps)^2(1-x)^{-1}
+        [\Delta_0-\ii0]^{-\eps}[\Delta_1-\ii0]^{-\eps}\);
+  \item the original AMFlow two-loop double-discontinuity expression, if
+        \WL{--amflow fresh} is requested.
+\end{enumerate}
+The fixed-\(\eps\) mode is, for example,
+\begin{verbatim}
+./run.sh two-loop-method3-mc-compare --all-points --eps 0.1 --amflow skip
+\end{verbatim}
+and the coefficient-fit mode is
+\begin{verbatim}
+./run.sh two-loop-method3-mc-compare --all-points \
+  --compare-coefficients --amflow skip
+\end{verbatim}
+On the cluster the same target can be called through the Slurm wrapper, e.g.
+\begin{verbatim}
+AMFLOW_TARGET=two-loop-method3-mc-compare \
+AMFLOW_ARGS="--point equal_mass_onshell_branch --eps 0.1 --amflow fresh" \
+sbatch run_amflow.slurm
+\end{verbatim}
+
+The Method-3 implementation deliberately does not perform the angular
+integration analytically. The remaining integral is the genuine
+three-dimensional integral
+\begin{equation}
+  \int_0^\infty \dd k
+  \int_0^\infty \dd l
+  \int_0^\pi \dd\theta\,
+  \frac{k^{1-2\eps}l^{1-2\eps}(\sin\theta)^{-2\eps}}
+       {D_2(l)D_4(l,k,\theta)} .
+\end{equation}
+For the equal-mass and \(p_\perp=0\) check points the denominators are
+implemented as
+\begin{align}
+  D_2(l)
+  &=
+  (y-p^+)
+  \left(\frac{l^2+M_l^2}{y}-p^-\right)
+  -(l^2+M_l^2)
+  +\ii\eta\,\frac{p^+}{y},\\
+  D_4(l,k,\theta)
+  &=
+  A(l,k;x,y)-2lk\cos\theta+\ii\eta\,\Gamma_{xy},
+\end{align}
+where
+\begin{equation}
+  \Gamma_{xy}=
+  \frac{(x+y)(p^+-x-y)}{xy}
+\end{equation}
+and
+\begin{equation}
+  A(l,k;x,y)=
+  \frac{x-p^+}{y}l^2
+  +\frac{y-p^+}{x}k^2
+  +M^2\frac{(x+y)(x+y-p^+)-xy}{xy}
+  -(x+y-p^+)p^- .
+\end{equation}
+The equal-mass assumption is explicit in the code. The old AMFlow point
+\WL{branch_safe_rational} is non-equal-mass, so the Python target can still
+run Method 1/2 and AMFlow for that point, but it skips Method 3 rather than
+silently applying the equal-mass formula outside its domain.
+
+The infinite radial intervals are mapped to the unit cube by
+\begin{equation}
+  k=\rho\frac{u}{1-u},\qquad
+  l=\rho\frac{v}{1-v},\qquad
+  \theta=\pi w,
+  \qquad 0<u,v,w<1.
+\end{equation}
+The Jacobian used in \WL{method3.py} is
+\begin{equation}
+  \dd k\,\dd l\,\dd\theta
+  =
+  \frac{\rho}{(1-u)^2}
+  \frac{\rho}{(1-v)^2}
+  \pi\,\dd u\,\dd v\,\dd w.
+\end{equation}
+The default scale is \(\rho=\sqrt{M^2}\). The command-line option
+\WL{--rho} can be used to test the dependence on this map scale.
+
+The unit-cube integral is evaluated by quasi-Monte-Carlo. If SciPy is
+available, the code uses scrambled Sobol points in three dimensions and
+therefore expects \(N\) to be a power of two. If SciPy is unavailable, it falls
+back to a shifted Halton sequence. Multiple scrambles are controlled by
+\WL{--scrambles}; the printed error estimate is the standard error of the
+mean over the scramble means. With \WL{--scrambles 1} no statistical error can
+be estimated, so the error column is \WL{nan}. The sample count is controlled
+by \WL{--N}, for example
+\begin{verbatim}
+./run.sh two-loop-method3-mc-compare --point equal_mass_onshell_branch \
+  --eps 0.1 --N 262144 --scrambles 4 --amflow skip
+\end{verbatim}
+
+The Method-3 normalization is applied only after the stripped numerical
+integral is computed. The prefactor printed in debug mode is
+\begin{equation}
+  (2\pi\ii)^2\,
+  \frac{\Omega_{n-1}\Omega_{n-2}}
+       {(\ii\pi^{d/2})^2}\,
+  \frac{1}{xy},
+  \qquad
+  d=4-2\eps,\qquad n=d-2,
+\end{equation}
+with
+\begin{equation}
+  \Omega_m=\frac{2\pi^{m/2}}{\Gamma(m/2)}.
+\end{equation}
+The factor \(\Omega_{n-2}=\Omega_{-2\eps}\) is kept as the analytically
+continued solid-angle factor; it is not replaced by a two-dimensional angular
+measure.
+
+The option \WL{--debug} prints the formula components, the Method-3
+normalization, fixed deterministic integrand probes, finite radial-cutoff
+diagnostics, \(\rho\)-scans, \(N\)-scans, and \(\eta\)-scans. The purpose is
+to diagnose formula, branch, normalization, mapping, and convergence issues
+without introducing UV subtraction and without replacing the \(\theta\)
+integral by the analytic angular function.
+
+\subsection{Fixed-\(\eps\) AMFlow Helper Target}
+
+The file \WL{targets/CompareTwoLoopFixedEps.wl} is the Mathematica helper used
+by the Python comparison target. It loads the same two-loop family definitions
+as \WL{CompareTwoLoop.wl}, solves the four AMFlow sign pieces for the selected
+kinematic point, forms
+\begin{equation}
+  \mathcal I_{\mathrm{disc}}(\eps)
+  =
+  \frac{I_{PP}(\eps)+I_{PM}(\eps)+I_{MP}(\eps)+I_{MM}(\eps)}
+       {(2\pi\ii)^2},
+\end{equation}
+and then evaluates this expression at requested positive \(\eps\)-values.
+
+For a single fixed-\(\eps\) check, the Python driver sets
+\WL{TWO_LOOP_EPS_VALUE}. For coefficient fits it sets
+\WL{TWO_LOOP_EPS_LIST}, for example
+\begin{verbatim}
+TWO_LOOP_EPS_LIST="1/5,3/20,1/10,3/40,1/20"
+\end{verbatim}
+In that case AMFlow is run only once for the selected point; the resulting
+expression in \(\eps\) is reused for every value in the list. This avoids
+rerunning the expensive AMFlow reduction/evaluation separately for each
+\(\eps\). The Python driver parses the lines
+\begin{verbatim}
+AMFLOW_EPS_LIST_VALUE_INDEX=...
+\end{verbatim}
+from the helper target and uses those values in the same Laurent-fitting
+machinery as Method 3.
+
+All output from the Python target is written to
+\begin{verbatim}
+logs/two-loop-method3-mc-compare.log
+\end{verbatim}
+and the internal AMFlow helper runs are additionally saved as
+\begin{verbatim}
+logs/two-loop-method3-mc-compare_amflow_<point>_eps_<eps>.log
+logs/two-loop-method3-mc-compare_amflow_<point>_eps_list_<epslist>.log
+\end{verbatim}
+Coefficient and debug reports are written under \WL{targets/output/}.
 
 For quick smoke tests, the same scripts can be run at lower precision while
 keeping the same \(\eps\)-order. The predefined shortcut

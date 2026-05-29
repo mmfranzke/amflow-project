@@ -100,6 +100,10 @@ def repo_root():
     return Path(__file__).resolve().parents[2]
 
 
+def safe_name(value):
+    return str(value).replace("/", "_over_").replace(".", "p").replace("-", "m").replace("+", "p")
+
+
 def parse_args():
     examples = """examples:
   ./run.sh two-loop-method3-mc-compare --all-points --eps 0.1 --amflow skip
@@ -143,6 +147,9 @@ def complex_from_wolfram(text):
 def run_amflow(point_name, eps, args):
     repo = repo_root()
     run_sh = repo / "amflow-project" / "run.sh"
+    log_dir = repo / "amflow-project" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"two-loop-method3-mc-compare_amflow_{point_name}_eps_{safe_name(eps)}.log"
     env = os.environ.copy()
     env["TWO_LOOP_POINT"] = point_name
     env["TWO_LOOP_EPS_VALUE"] = str(float(eps))
@@ -158,6 +165,8 @@ def run_amflow(point_name, eps, args):
         stderr=subprocess.STDOUT,
         check=False,
     )
+    log_path.write_text(proc.stdout, encoding="utf-8")
+    print(f"AMFlow fixed-eps log written to: {log_path}")
     if proc.returncode != 0:
         return None, proc.stdout
 
@@ -168,6 +177,46 @@ def run_amflow(point_name, eps, args):
         return complex_from_wolfram(match.group(1)), proc.stdout
     except Exception:
         return None, proc.stdout
+
+
+def run_amflow_eps_values(point_name, eps_values, args):
+    repo = repo_root()
+    run_sh = repo / "amflow-project" / "run.sh"
+    log_dir = repo / "amflow-project" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    eps_label = "_".join(safe_name(eps) for eps in eps_values)
+    log_path = log_dir / f"two-loop-method3-mc-compare_amflow_{point_name}_eps_list_{eps_label}.log"
+    env = os.environ.copy()
+    env["TWO_LOOP_POINT"] = point_name
+    env["TWO_LOOP_EPS_VALUE"] = str(float(eps_values[0]))
+    env["TWO_LOOP_EPS_LIST"] = ",".join(str(eps) for eps in eps_values)
+    env["AMFLOW_EPS_ORDER"] = args.amflow_eps_order
+    env["AMFLOW_PRECISION_GOAL"] = args.precision_goal
+
+    proc = subprocess.run(
+        [str(run_sh), "compare-twoloop-fixed-eps"],
+        cwd=str(repo / "amflow-project"),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    log_path.write_text(proc.stdout, encoding="utf-8")
+    print(f"AMFlow eps-list log written to: {log_path}")
+    if proc.returncode != 0:
+        return [None for _ in eps_values], proc.stdout
+
+    values = [None for _ in eps_values]
+    for match in re.finditer(r"AMFLOW_EPS_LIST_VALUE_INDEX=(\d+) VALUE=(.+)", proc.stdout):
+        index = int(match.group(1)) - 1
+        if 0 <= index < len(values):
+            try:
+                values[index] = complex_from_wolfram(match.group(2))
+            except Exception:
+                values[index] = None
+
+    return values, proc.stdout
 
 
 def fmt_complex(z):
@@ -190,6 +239,21 @@ def ratio_or_none(numerator, denominator):
     if numerator is None or denominator is None or denominator == 0:
         return None
     return numerator / denominator
+
+
+def method3_supported(point):
+    return point.p_perp2 == 0 and point.ml2 == point.Ml2 == point.mk2 == point.Mk2
+
+
+def method3_unsupported_reason(point):
+    if point.p_perp2 != 0:
+        return "method3 currently implements p_perp2 = 0"
+    if point.ml2 != point.Ml2 or point.ml2 != point.mk2 or point.ml2 != point.Mk2:
+        return (
+            "method3 currently implements the equal-mass PDF specialization; "
+            f"got ml2={point.ml2}, Ml2={point.Ml2}, mk2={point.mk2}, Mk2={point.Mk2}"
+        )
+    return None
 
 
 def print_rule(widths):
@@ -246,18 +310,27 @@ def compare_point(point_name, eps, eta, args):
     print_delta_diagnostics(point, eta)
 
     rho = None if args.rho is None else parse_mpf(args.rho)
-    stripped, stripped_err = method3_stripped(
-        point=point,
-        eps=eps,
-        eta=eta,
-        n_samples=args.N,
-        rho=rho,
-        scrambles=args.scrambles,
-        seed=args.seed,
-    )
-    pref = method3_prefactor(point, eps)
-    normalized = complex(pref) * stripped
-    normalized_err = abs(complex(pref)) * stripped_err
+    unsupported_reason = method3_unsupported_reason(point)
+    if unsupported_reason is None:
+        stripped, stripped_err = method3_stripped(
+            point=point,
+            eps=eps,
+            eta=eta,
+            n_samples=args.N,
+            rho=rho,
+            scrambles=args.scrambles,
+            seed=args.seed,
+        )
+        pref = method3_prefactor(point, eps)
+        normalized = complex(pref) * stripped
+        normalized_err = abs(complex(pref)) * stripped_err
+    else:
+        print(f"Method 3 skipped: {unsupported_reason}")
+        stripped = None
+        stripped_err = None
+        pref = None
+        normalized = None
+        normalized_err = None
 
     method12 = closed_form_value(point, eps, Fraction(1, 10**30))
     d0_pow = complex(float(delta0_value(point)), -1e-30) ** (-float(eps))
@@ -282,8 +355,8 @@ def compare_point(point_name, eps, eta, args):
         "method3_normalized_err": normalized_err,
         "method12_closed": method12,
         "AMFlow_original": amflow,
-        "diff_method3_vs_method12": normalized - method12,
-        "diff_method3_vs_AMFlow": None if amflow is None else normalized - amflow,
+        "diff_method3_vs_method12": None if normalized is None else normalized - method12,
+        "diff_method3_vs_AMFlow": None if amflow is None or normalized is None else normalized - amflow,
         "diff_method12_vs_AMFlow": None if amflow is None else method12 - amflow,
         "ratio_method12_over_method3_stripped": ratio_or_none(method12, stripped),
         "ratio_method12_over_method3_normalized": ratio_or_none(method12, normalized),
@@ -350,7 +423,7 @@ def print_method3_formula_debug(point):
         ["Ml2 used in D2", point.Ml2],
         ["mk2", point.mk2],
         ["Mk2", point.Mk2],
-        ["M2 used in equal-mass A", point.M2],
+        ["M2 used in equal-mass A", point.M2 if method3_supported(point) else "not available"],
         ["all masses equal", point.ml2 == point.Ml2 == point.mk2 == point.Mk2],
         ["x > 0", point.x > 0],
         ["y > 0", point.y > 0],
@@ -518,13 +591,15 @@ def print_eta_scan(point, eps, n_samples, rho, scrambles, seed):
 
 
 def print_comparison_levels(row):
+    point = get_point(row["point_name"])
+    prefactor = method3_prefactor(point, row["eps"]) if method3_supported(point) else None
     print()
     print("== Debug: Comparison Levels And Ratios ==")
     print_small_table(
         ["quantity", "value"],
         [
             ["method3_stripped", fmt_complex(row["method3_stripped"])],
-            ["method3_prefactor", fmt_complex(method3_prefactor(get_point(row["point_name"]), row["eps"]))],
+            ["method3_prefactor", fmt_complex(prefactor)],
             ["method3_normalized", fmt_complex(row["method3_normalized"])],
             ["method12_closed", fmt_complex(row["method12_closed"])],
             ["method12_closed / method3_stripped", fmt_complex(row["ratio_method12_over_method3_stripped"])],
@@ -539,13 +614,17 @@ def print_debug_report(point, eps, eta, args, row):
     print(f"######## Method 3 Debug Report: {point.name}, eps={eps}, eta={eta} ########")
     print_method12_debug(point, eps)
     print_method3_formula_debug(point)
-    print_method3_prefactor_debug(point, eps, row["method3_stripped"])
-    print_integrand_probes(point, eps, eta, rho)
     print_comparison_levels(row)
-    print_cutoff_scan(point, eps, eta, args.N, args.scrambles, args.seed)
-    print_rho_scan(point, eps, eta, args.N, args.scrambles, args.seed)
-    print_n_scan(point, eps, eta, rho, args.scrambles, args.seed, args.debug_include_2p20)
-    print_eta_scan(point, eps, args.N, rho, args.scrambles, args.seed)
+    unsupported_reason = method3_unsupported_reason(point)
+    if unsupported_reason is None:
+        print_method3_prefactor_debug(point, eps, row["method3_stripped"])
+        print_integrand_probes(point, eps, eta, rho)
+        print_cutoff_scan(point, eps, eta, args.N, args.scrambles, args.seed)
+        print_rho_scan(point, eps, eta, args.N, args.scrambles, args.seed)
+        print_n_scan(point, eps, eta, rho, args.scrambles, args.seed, args.debug_include_2p20)
+        print_eta_scan(point, eps, args.N, rho, args.scrambles, args.seed)
+    else:
+        print(f"Method 3 numerical diagnostics skipped: {unsupported_reason}")
     print("######## End Method 3 Debug Report ########")
 
 
@@ -710,48 +789,52 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
 
     method3_values = []
     method3_errors = []
-    method3_stripped_values = []
-    print()
-    print("== Evaluating Method 3 At epsList ==")
-    for eps in eps_values:
-        stripped, stripped_err = method3_stripped(
-            point=point,
-            eps=eps,
-            eta=eta,
-            n_samples=args.N,
-            rho=rho,
-            scrambles=args.scrambles,
-            seed=args.seed,
-        )
-        prefactor = method3_prefactor(point, eps)
-        normalized = prefactor * stripped
-        normalized_err = abs(prefactor) * stripped_err
-        method3_stripped_values.append(stripped)
-        method3_values.append(normalized)
-        method3_errors.append(normalized_err)
-        print(f"  eps={eps}: method3_normalized={fmt_complex(normalized)} error={fmt_float(normalized_err)}")
+    method3_fit = None
+    unsupported_reason = method3_unsupported_reason(point)
+    if unsupported_reason is None:
+        print()
+        print("== Evaluating Method 3 At epsList ==")
+        for eps in eps_values:
+            stripped, stripped_err = method3_stripped(
+                point=point,
+                eps=eps,
+                eta=eta,
+                n_samples=args.N,
+                rho=rho,
+                scrambles=args.scrambles,
+                seed=args.seed,
+            )
+            prefactor = method3_prefactor(point, eps)
+            normalized = prefactor * stripped
+            normalized_err = abs(prefactor) * stripped_err
+            method3_values.append(normalized)
+            method3_errors.append(normalized_err)
+            print(f"  eps={eps}: method3_normalized={fmt_complex(normalized)} error={fmt_float(normalized_err)}")
 
-    print_sample_table("== Method 3 Samples Used For Fit ==", eps_values, method3_values, method3_errors)
-    method3_fit = fit_laurent_coefficients(eps_values, method3_values, min_power, max_power)
-    print()
-    print("== Method 3 Fitted Laurent Coefficients ==")
-    print_small_table(["coefficient", "method3_fit"], coefficient_rows(method3_fit, min_power, max_power))
-    print_fit_residuals("== Method 3 Fit Residuals ==", eps_values, method3_values, method3_fit)
+        print_sample_table("== Method 3 Samples Used For Fit ==", eps_values, method3_values, method3_errors)
+        method3_fit = fit_laurent_coefficients(eps_values, method3_values, min_power, max_power)
+        print()
+        print("== Method 3 Fitted Laurent Coefficients ==")
+        print_small_table(["coefficient", "method3_fit"], coefficient_rows(method3_fit, min_power, max_power))
+        print_fit_residuals("== Method 3 Fit Residuals ==", eps_values, method3_values, method3_fit)
+    else:
+        print()
+        print(f"== Method 3 Fit Skipped: {unsupported_reason} ==")
 
     amflow_values = None
     amflow_fit = None
     if args.amflow == "fresh":
-        amflow_values = []
         print()
         print("== Evaluating AMFlow At epsList ==")
-        for eps in eps_values:
-            value, output = run_amflow(point_name, eps, args)
+        print("Running AMFlow once for this point and reusing its epsilon expression for all eps values.")
+        amflow_values, output = run_amflow_eps_values(point_name, eps_values, args)
+        for eps, value in zip(eps_values, amflow_values):
             if value is None:
                 print(f"  eps={eps}: AMFlow unavailable")
-                print(output[-4000:])
             else:
                 print(f"  eps={eps}: AMFlow_original={fmt_complex(value)}")
-            amflow_values.append(value)
+        if any(value is None for value in amflow_values):
+            print(output[-4000:])
 
         if all(value is not None for value in amflow_values):
             amflow_fit = fit_laurent_coefficients(eps_values, amflow_values, min_power, max_power)
@@ -766,8 +849,8 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
         "coefficient",
         "method12_analytic",
         "method12_fit",
-        "method3_fit",
-        "method3_fit - method12_analytic",
+            "method3_fit",
+            "method3_fit - method12_analytic",
     ]
     rows = []
     for power in range(min_power, max_power + 1):
@@ -775,8 +858,8 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
             f"c[{power}]",
             fmt_complex(method12_analytic[power]),
             fmt_complex(method12_fit[power]),
-            fmt_complex(method3_fit[power]),
-            fmt_complex(method3_fit[power] - method12_analytic[power]),
+            fmt_complex(None if method3_fit is None else method3_fit[power]),
+            fmt_complex(None if method3_fit is None else method3_fit[power] - method12_analytic[power]),
         ]
         rows.append(row)
     print_small_table(headers, rows)
@@ -796,7 +879,7 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
                     f"c[{power}]",
                     fmt_complex(amflow_fit[power]),
                     fmt_complex(amflow_fit[power] - method12_analytic[power]),
-                    fmt_complex(method3_fit[power] - amflow_fit[power]),
+                    fmt_complex(None if method3_fit is None else method3_fit[power] - amflow_fit[power]),
                 ]
                 for power in range(min_power, max_power + 1)
             ],
