@@ -9,8 +9,10 @@ fi
 
 if [ "$TARGET" = "two-loop-method3-mc-compare" ]; then
   PY_SCRIPT="$PROJECT_DIR/../local-subtraction-method/scripts/two_loop_method3_mc_compare.py"
-  python3 "$PY_SCRIPT" "$@"
-  exit $?
+  mkdir -p "$PROJECT_DIR/logs"
+  echo "Running $PY_SCRIPT $*"
+  python3 "$PY_SCRIPT" "$@" 2>&1 | tee "$PROJECT_DIR/logs/${TARGET}.log"
+  exit "${PIPESTATUS[0]}"
 fi
 
 if command -v WolframKernel >/dev/null 2>&1; then

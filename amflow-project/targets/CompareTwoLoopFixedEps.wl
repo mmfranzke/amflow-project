@@ -15,6 +15,7 @@ SetBasicAMFlowOptions[4];
 precisionGoal = TwoLoopPrecisionGoal[10];
 epsOrder = TwoLoopEpsOrder[4];
 epsEnv = Environment["TWO_LOOP_EPS_VALUE"];
+epsListEnv = Environment["TWO_LOOP_EPS_LIST"];
 epsValue =
   If[StringQ[epsEnv] && StringLength[epsEnv] > 0,
     ToExpression[epsEnv],
@@ -23,6 +24,11 @@ epsValue =
 If[! NumericQ[N[epsValue]],
   epsValue = 1/10;
 ];
+epsList =
+  If[StringQ[epsListEnv] && StringLength[epsListEnv] > 0,
+    ToExpression /@ StringSplit[epsListEnv, ","],
+    {epsValue}
+  ];
 
 point = TwoLoopSelectedPoint[];
 xval = point["x"];
@@ -77,6 +83,7 @@ rawPieceCombination =
 
 discExpr = rawPieceCombination/(2 Pi I)^2;
 amflowValue = N[discExpr /. eps -> epsValue, 40];
+amflowEpsListValues = N[discExpr /. eps -> #, 40] & /@ epsList;
 
 Print["Fixed-eps two-loop comparison"];
 TwoLoopPrintPoint[point];
@@ -85,16 +92,25 @@ Print["Delta0 = ", delta0];
 Print["Delta1 = ", delta1];
 Print["METHOD12_FIXED_EPS_VALUE=", InputForm[method12Value]];
 Print["AMFLOW_FIXED_EPS_VALUE=", InputForm[amflowValue]];
+Do[
+  Print[
+    "AMFLOW_EPS_LIST_VALUE_INDEX=", i,
+    " VALUE=", InputForm[amflowEpsListValues[[i]]]
+  ],
+  {i, Length[amflowEpsListValues]}
+];
 
 Export[
   FileNameJoin[{$ResultsDirectory, "compare_twoloop_fixed_eps_result.wl"}],
   <|
     "pointName" -> point["name"],
     "eps" -> epsValue,
+    "epsList" -> epsList,
     "delta0" -> delta0,
     "delta1" -> delta1,
     "method12Closed" -> method12Value,
     "amflowOriginal" -> amflowValue,
+    "amflowEpsListValues" -> amflowEpsListValues,
     "pieceExpressions" -> pieceExprs,
     "doubleDiscontinuityExpression" -> discExpr
   |>
