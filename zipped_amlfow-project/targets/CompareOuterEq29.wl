@@ -1,7 +1,6 @@
 (* targets/CompareOuterEq29.wl
    Direct AMFlow/GaugeLink check of Eq. (29) against the analytic Eq. (51)/(53).
    This target runs AMFlow if executed. *)
-Print["CompareOuterEq29 uses the current-PDF convention b=lambda*(1-lambda*x)."];
 
 projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 

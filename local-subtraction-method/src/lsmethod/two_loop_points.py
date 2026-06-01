@@ -70,6 +70,30 @@ POINTS = {
         mk2=Fraction(1),
         Mk2=Fraction(1),
     ),
+    "equal_mass_offshell_nonsymmetric": TwoLoopPoint(
+        name="equal_mass_offshell_nonsymmetric",
+        p_plus=Fraction(1),
+        p_minus=Fraction(5),
+        p_perp2=Fraction(0),
+        x=Fraction(1, 5),
+        y=Fraction(3, 10),
+        ml2=Fraction(1),
+        Ml2=Fraction(1),
+        mk2=Fraction(1),
+        Mk2=Fraction(1),
+    ),
+    "equal_mass_onshell_nonsymmetric": TwoLoopPoint(
+        name="equal_mass_onshell_nonsymmetric",
+        p_plus=Fraction(1),
+        p_minus=Fraction(0),
+        p_perp2=Fraction(0),
+        x=Fraction(1, 5),
+        y=Fraction(3, 10),
+        ml2=Fraction(1),
+        Ml2=Fraction(1),
+        mk2=Fraction(1),
+        Mk2=Fraction(1),
+    ),
 }
 
 

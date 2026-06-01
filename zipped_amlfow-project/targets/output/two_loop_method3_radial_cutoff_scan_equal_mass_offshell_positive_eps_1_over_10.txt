@@ -1,0 +1,137 @@
+Radial-cutoff-scan examples:
+  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --radial-cutoff-scan --eps 0.1 --amflow skip
+  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --radial-cutoff-scan --eps-list 0.2,0.15,0.1,0.075,0.05 --amflow skip
+  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --radial-cutoff-scan --eps 0.1 --Kmax-list 500,1000,2000 --amflow skip --debug-normalization
+
+######## Radial Cutoff Accumulation Scan: equal_mass_offshell_positive ########
+finite-box map: k = Kmax u, l = Kmax v, theta = Pi w
+Jacobian: Kmax^2 Pi
+KmaxList = {500, 1000, 2000}
+epsList = {1/10}
+N = 262144, scrambles = 4, eta = 1/1000000, lcJacobian = 1/4
+Default infinite-map method3 is not changed by this diagnostic.
+Kmax-shells requested: reporting cumulative shell increments I(K_i)-I(K_{i-1}) from the finite-box data.
+
+== Method 1/2 Variable Convention Audit ==
+implemented formula: Gamma[eps]^2 / Xval * Delta0^(-eps) * Delta1^(-eps)
+current Python implementation sets Xval = 1 - x.
++----------------------+----------------------------------------+
+| quantity             | value                                  |
++----------------------+----------------------------------------+
+| eps                  | 1/10                                   |
+| Xval                 | 7.5000000000000000e-01                 |
+| pPlus - x            | 7.5000000000000000e-01                 |
+| 1 - x                | 7.5000000000000000e-01                 |
+| lambda = y/(pPlus-x) | 3.3333333333333331e-01                 |
+| y                    | 1/4                                    |
+| Xval == pPlus - x    | True                                   |
+| Xval == 1 - x        | True                                   |
+| method12_closed      | 1.716395790467e+02+0.000000000000e+00j |
++----------------------+----------------------------------------+
+Diagnostic: the closed form is written in terms of y only through lambda = y/Xval, while the prefactor is 1/Xval.
+Diagnostic: this is consistent with a lambda-to-y Jacobian, but the derivation must decide whether the target density is in y or lambda.
+
+== AMFlow Delta Convention Audit ==
+Visible in amflow-project/families/TwoLoopKernelUncutFamilies.wl:
+  AMFlowInfo["Propagator"] contains sx (x - n l) and sy (y - n k).
+  The uncut GaugeLink denominators are combined by a double discontinuity.
+Visible in CompareTwoLoopFixedEps.wl:
+  discExpr = (PP + PM + MP + MM)/(2 Pi I)^2.
+Inferred convention from the code: delta constraints correspond to n.l = x and n.k = y.
+No explicit denominator of the form n.k/(pPlus-x) - lambda is visible in the AMFlow family.
+
+== Method 3 Normalization Definitions For Cutoff Scan ==
+method3_stripped_cutoff: raw finite-box MC integral over dk dl dtheta, including Kmax^2 Pi, excluding the global Method-3 prefactor.
+method3_normalized_cutoff: method3_prefactor * method3_stripped_cutoff.
++-------------------------------------------------+-----------------------------------------+
+| component                                       | value                                   |
++-------------------------------------------------+-----------------------------------------+
+| eps                                             | 1/10                                    |
+| d = 4 - 2 eps                                   | 3.7999999999999998e+00                  |
+| n = d - 2                                       | 1.7999999999999998e+00                  |
+| x                                               | 1/4                                     |
+| y                                               | 1/4                                     |
+| pPlus                                           | 1                                       |
+| lambda = y/(pPlus-x)                            | 3.3333333333333331e-01                  |
+| oneMinusX = pPlus - x                           | 7.5000000000000000e-01                  |
+| 1 - x diagnostic                                | 7.5000000000000000e-01                  |
+| lcJacobian                                      | 2.5000000000000000e-01                  |
+| contour factor = (2 Pi I)^2                     | -3.947841760436e+01+0.000000000000e+00j |
+| loop normalization denominator = (I Pi^(d/2))^2 | -7.747641490428e+01+0.000000000000e+00j |
+| Omega[n]                                        | 5.2437025277925207e+00                  |
+| Omega[n-1]                                      | 1.4252700680437718e+00                  |
+| angular prefactor = Omega[n] Omega[n-1]         | 7.4736922585881436e+00                  |
+| xy factor = 1/(x y)                             | 1.6000000000000000e+01                  |
+| full method3_prefactor                          | 1.523299932737e+01+0.000000000000e+00j  |
++-------------------------------------------------+-----------------------------------------+
+
+== eps = 1/10 ==
+
+== Normalization Variant Audit: eps=1/10, Kmax=500 ==
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+| variant_name                              | value                                   | ratio_to_method12                       |
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+| current = N3 * stripped                   | 6.176910567945e+01+2.299967359700e-04j  | 3.598768187531e-01+1.339998252428e-06j  |
+| flip_sign = -current                      | -6.176910567945e+01-2.299967359700e-04j | -3.598768187531e-01-1.339998252428e-06j |
+| no_lc_jacobian = current / lcJacobian     | 2.470764227178e+02+9.199869438801e-04j  | 1.439507275012e+00+5.359993009711e-06j  |
+| double_lc_jacobian = current * lcJacobian | 1.544227641986e+01+5.749918399250e-05j  | 8.996920468828e-02+3.349995631070e-07j  |
+| times_2                                   | 1.235382113589e+02+4.599934719400e-04j  | 7.197536375062e-01+2.679996504856e-06j  |
+| times_1_over_2                            | 3.088455283972e+01+1.149983679850e-04j  | 1.799384093766e-01+6.699991262139e-07j  |
+| times_4                                   | 2.470764227178e+02+9.199869438801e-04j  | 1.439507275012e+00+5.359993009711e-06j  |
+| times_1_over_4                            | 1.544227641986e+01+5.749918399250e-05j  | 8.996920468828e-02+3.349995631070e-07j  |
+| times_1_minus_x                           | 4.632682925959e+01+1.724975519775e-04j  | 2.699076140648e-01+1.004998689321e-06j  |
+| divided_by_1_minus_x                      | 8.235880757260e+01+3.066623146267e-04j  | 4.798357583375e-01+1.786664336570e-06j  |
+| times_y_jacobian                          | 4.632682925959e+01+1.724975519775e-04j  | 2.699076140648e-01+1.004998689321e-06j  |
+| lambda_density                            | 4.632682925959e+01+1.724975519775e-04j  | 2.699076140648e-01+1.004998689321e-06j  |
+| y_density_from_lambda                     | 8.235880757260e+01+3.066623146267e-04j  | 4.798357583375e-01+1.786664336570e-06j  |
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+Note: If method12 is differential in lambda = y/(pPlus-x), but method3 is differential in y, then compare method3_y_density to method12_lambda_density with dy = (pPlus-x) dlambda. This convention must be checked against the derivation.
+
+== Normalization Variant Audit: eps=1/10, Kmax=1000 ==
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+| variant_name                              | value                                   | ratio_to_method12                       |
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+| current = N3 * stripped                   | 7.225866978770e+01+2.739919890956e-04j  | 4.209907189766e-01+1.596321726128e-06j  |
+| flip_sign = -current                      | -7.225866978770e+01-2.739919890956e-04j | -4.209907189766e-01-1.596321726128e-06j |
+| no_lc_jacobian = current / lcJacobian     | 2.890346791508e+02+1.095967956383e-03j  | 1.683962875906e+00+6.385286904511e-06j  |
+| double_lc_jacobian = current * lcJacobian | 1.806466744693e+01+6.849799727391e-05j  | 1.052476797441e-01+3.990804315319e-07j  |
+| times_2                                   | 1.445173395754e+02+5.479839781913e-04j  | 8.419814379531e-01+3.192643452255e-06j  |
+| times_1_over_2                            | 3.612933489385e+01+1.369959945478e-04j  | 2.104953594883e-01+7.981608630638e-07j  |
+| times_4                                   | 2.890346791508e+02+1.095967956383e-03j  | 1.683962875906e+00+6.385286904511e-06j  |
+| times_1_over_4                            | 1.806466744693e+01+6.849799727391e-05j  | 1.052476797441e-01+3.990804315319e-07j  |
+| times_1_minus_x                           | 5.419400234078e+01+2.054939918217e-04j  | 3.157430392324e-01+1.197241294596e-06j  |
+| divided_by_1_minus_x                      | 9.634489305027e+01+3.653226521275e-04j  | 5.613209586354e-01+2.128428968170e-06j  |
+| times_y_jacobian                          | 5.419400234078e+01+2.054939918217e-04j  | 3.157430392324e-01+1.197241294596e-06j  |
+| lambda_density                            | 5.419400234078e+01+2.054939918217e-04j  | 3.157430392324e-01+1.197241294596e-06j  |
+| y_density_from_lambda                     | 9.634489305027e+01+3.653226521275e-04j  | 5.613209586354e-01+2.128428968170e-06j  |
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+Note: If method12 is differential in lambda = y/(pPlus-x), but method3 is differential in y, then compare method3_y_density to method12_lambda_density with dy = (pPlus-x) dlambda. This convention must be checked against the derivation.
+
+== Normalization Variant Audit: eps=1/10, Kmax=2000 ==
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+| variant_name                              | value                                   | ratio_to_method12                       |
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+| current = N3 * stripped                   | 7.983761416929e+01+2.436434147891e-04j  | 4.651468770357e-01+1.419506014535e-06j  |
+| flip_sign = -current                      | -7.983761416929e+01-2.436434147891e-04j | -4.651468770357e-01-1.419506014535e-06j |
+| no_lc_jacobian = current / lcJacobian     | 3.193504566772e+02+9.745736591563e-04j  | 1.860587508143e+00+5.678024058141e-06j  |
+| double_lc_jacobian = current * lcJacobian | 1.995940354232e+01+6.091085369727e-05j  | 1.162867192589e-01+3.548765036338e-07j  |
+| times_2                                   | 1.596752283386e+02+4.872868295782e-04j  | 9.302937540714e-01+2.839012029071e-06j  |
+| times_1_over_2                            | 3.991880708464e+01+1.218217073945e-04j  | 2.325734385178e-01+7.097530072676e-07j  |
+| times_4                                   | 3.193504566772e+02+9.745736591563e-04j  | 1.860587508143e+00+5.678024058141e-06j  |
+| times_1_over_4                            | 1.995940354232e+01+6.091085369727e-05j  | 1.162867192589e-01+3.548765036338e-07j  |
+| times_1_minus_x                           | 5.987821062697e+01+1.827325610918e-04j  | 3.488601577768e-01+1.064629510901e-06j  |
+| divided_by_1_minus_x                      | 1.064501522257e+02+3.248578863854e-04j  | 6.201958360476e-01+1.892674686047e-06j  |
+| times_y_jacobian                          | 5.987821062697e+01+1.827325610918e-04j  | 3.488601577768e-01+1.064629510901e-06j  |
+| lambda_density                            | 5.987821062697e+01+1.827325610918e-04j  | 3.488601577768e-01+1.064629510901e-06j  |
+| y_density_from_lambda                     | 1.064501522257e+02+3.248578863854e-04j  | 6.201958360476e-01+1.892674686047e-06j  |
++-------------------------------------------+-----------------------------------------+-----------------------------------------+
+Note: If method12 is differential in lambda = y/(pPlus-x), but method3 is differential in y, then compare method3_y_density to method12_lambda_density with dy = (pPlus-x) dlambda. This convention must be checked against the derivation.
++------+----------------------------------------+----------------------------------------+------------+----------------+----------------------------------------+-------------+---------------------+----------------------------------------+----------------------------------------+
+| Kmax | method3_stripped_cutoff                | method3_normalized_cutoff              | MC error   | relative_error | shell_increment                        | shell_error | |shell|/shell_error | method12_closed                        | cutoff/method12                        |
++------+----------------------------------------+----------------------------------------+------------+----------------+----------------------------------------+-------------+---------------------+----------------------------------------+----------------------------------------+
+| 500  | 4.054953614320e+00+1.509858505388e-05j | 6.176910567945e+01+2.299967359700e-04j | 1.7409e+00 | 2.8183e-02     | not run                                | n/a         | n/a                 | 1.716395790467e+02+0.000000000000e+00j | 3.598768187531e-01+1.339998252428e-06j |
+| 1000 | 4.743561542596e+00+1.798673939435e-05j | 7.225866978770e+01+2.739919890956e-04j | 4.9559e+00 | 6.8586e-02     | 1.048956410825e+01+4.399525312563e-05j | 5.2528e+00  | 1.9969e+00          | 1.716395790467e+02+0.000000000000e+00j | 4.209907189766e-01+1.596321726128e-06j |
+| 2000 | 5.241096152735e+00+1.599444794508e-05j | 7.983761416929e+01+2.436434147891e-04j | 9.0107e+00 | 1.1286e-01     | 7.578944381587e+00-3.034857430656e-05j | 1.0284e+01  | 7.3699e-01          | 1.716395790467e+02+0.000000000000e+00j | 4.651468770357e-01+1.419506014535e-06j |
++------+----------------------------------------+----------------------------------------+------------+----------------+----------------------------------------+-------------+---------------------+----------------------------------------+----------------------------------------+
+
+Laurent fit skipped: need at least 5 eps values for powers -2..2; got 1.

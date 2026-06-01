@@ -35,10 +35,6 @@ epsList =
   ];
 
 point = TwoLoopSelectedPoint[];
-pointMetadata = KeyTake[
-  point,
-  {"name", "pPlus", "pMinus", "p2", "pPerp2", "x", "y", "ml2", "Ml2", "mk2", "Mk2"}
-];
 cacheFile = FileNameJoin[
   {$ResultsDirectory, "compare_twoloop_fixed_eps_result_" <> point["name"] <> ".wl"}
 ];
@@ -60,15 +56,10 @@ muLxVal = (1 - xval) ml2val + xval Ml2val;
 muKlambdaVal = (1 - lambdaVal) mk2val + lambdaVal Mk2val;
 
 delta0 = muLxVal - xval (1 - xval) sval;
-delta1OldCompare = (
-  -muKlambdaVal
-  + lambdaVal (1 - lambdaVal) Ml2val
-  + lambdaVal (1 - xval) sval
-);
 delta1 = (
   -muKlambdaVal
   + lambdaVal (1 - lambdaVal) Ml2val
-  + lambdaVal (1 - lambdaVal*xval) sval
+  + lambdaVal (1 - xval) sval
 );
 
 etaReg = 10^-30;
@@ -90,60 +81,12 @@ If[reuseAMFlowResult,
     Print["AMFLOW_CACHE_INVALID=", cacheFile];
     Abort[];
   ];
-  cachedPointMetadata =
-    If[KeyExistsQ[cached, "pointMetadata"],
-      cached["pointMetadata"],
-      If[KeyExistsQ[cached, "pointName"],
-        <|"name" -> cached["pointName"]|>,
-        <||>
-      ]
-    ];
-  If[KeyExistsQ[cachedPointMetadata, "name"] && cachedPointMetadata["name"] =!= point["name"],
-    Print[
-      "AMFLOW_CACHE_POINT_MISMATCH cached=",
-      cachedPointMetadata["name"],
-      " requested=",
-      point["name"]
-    ];
-    Abort[];
-  ];
-  If[KeyExistsQ[cached, "pointMetadata"] && cached["pointMetadata"] =!= pointMetadata,
-    Print["AMFLOW_CACHE_METADATA_MISMATCH"];
-    Print["cached point metadata: ", InputForm[cached["pointMetadata"]]];
-    Print["requested point metadata: ", InputForm[pointMetadata]];
-    Abort[];
-  ];
   If[KeyExistsQ[cached, "pointName"] && cached["pointName"] =!= point["name"],
     Print[
       "AMFLOW_CACHE_POINT_MISMATCH cached=",
       cached["pointName"],
       " requested=",
       point["name"]
-    ];
-    Abort[];
-  ];
-  cachedCoeffPowers =
-    If[KeyExistsQ[cached, "coefficientPowers"],
-      cached["coefficientPowers"],
-      If[KeyExistsQ[cached, "doubleDiscontinuityCoefficients"],
-        Keys[cached["doubleDiscontinuityCoefficients"]],
-        Range[-2, 0]
-      ]
-    ];
-  missingCoeffPowers = Complement[coeffPowers, cachedCoeffPowers];
-  If[Length[missingCoeffPowers] > 0,
-    Print[
-      "AMFLOW_CACHE_COEFFICIENTS_UNAVAILABLE cached powers=",
-      InputForm[cachedCoeffPowers],
-      " requested powers=",
-      InputForm[coeffPowers]
-    ];
-    Print[
-      "Cached AMFlow result has coefficients ",
-      InputForm[cachedCoeffPowers],
-      ". Rerun with --amflow fresh --amflow-eps-order ",
-      epsOrder,
-      " or larger."
     ];
     Abort[];
   ];
@@ -196,13 +139,7 @@ Print["Fixed-eps two-loop comparison"];
 TwoLoopPrintPoint[point];
 Print["eps = ", epsValue];
 Print["Delta0 = ", delta0];
-Print["Delta1 current PDF = ", delta1];
-Print["Delta1 old compare diagnostic = ", delta1OldCompare];
-If[sval =!= 0,
-  Print["WARNING: off-shell point is sensitive to the Delta1 p2-term convention."];
-  Print["Current-PDF default uses lambda*(1-lambda*x)*p2."];
-  Print["Old compare convention used lambda*(1-x)*p2."];
-];
+Print["Delta1 = ", delta1];
 Print["METHOD12_FIXED_EPS_VALUE=", InputForm[method12Value]];
 Print["AMFLOW_FIXED_EPS_VALUE=", InputForm[amflowValue]];
 Print["AMFLOW_OBJECT_POINT=", point["name"]];
@@ -239,20 +176,13 @@ Export[
   cacheFile,
   <|
     "pointName" -> point["name"],
-    "pointMetadata" -> pointMetadata,
     "eps" -> epsValue,
     "epsList" -> epsList,
     "delta0" -> delta0,
     "delta1" -> delta1,
-    "delta1OldCompare" -> delta1OldCompare,
     "method12Closed" -> method12Value,
     "amflowOriginal" -> amflowValue,
     "amflowEpsListValues" -> amflowEpsListValues,
-    "AMFLOW_EPS_ORDER" -> epsOrder,
-    "coefficientPowers" -> coeffPowers,
-    "selectedFamilies" -> (TwoLoopKernelFamilySymbol /@ TwoLoopKernelPieces[]),
-    "selectedIntegrals" -> (TwoLoopKernelTarget /@ TwoLoopKernelPieces[]),
-    "normalizationFactor" -> HoldForm[1/(2 Pi I)^2],
     "rawPieceCombinationCoefficients" -> rawCoeffAssoc,
     "doubleDiscontinuityCoefficients" -> normalizedCoeffAssoc,
     "pieceExpressions" -> pieceExprs,
@@ -264,20 +194,13 @@ Export[
   legacyCacheFile,
   <|
     "pointName" -> point["name"],
-    "pointMetadata" -> pointMetadata,
     "eps" -> epsValue,
     "epsList" -> epsList,
     "delta0" -> delta0,
     "delta1" -> delta1,
-    "delta1OldCompare" -> delta1OldCompare,
     "method12Closed" -> method12Value,
     "amflowOriginal" -> amflowValue,
     "amflowEpsListValues" -> amflowEpsListValues,
-    "AMFLOW_EPS_ORDER" -> epsOrder,
-    "coefficientPowers" -> coeffPowers,
-    "selectedFamilies" -> (TwoLoopKernelFamilySymbol /@ TwoLoopKernelPieces[]),
-    "selectedIntegrals" -> (TwoLoopKernelTarget /@ TwoLoopKernelPieces[]),
-    "normalizationFactor" -> HoldForm[1/(2 Pi I)^2],
     "rawPieceCombinationCoefficients" -> rawCoeffAssoc,
     "doubleDiscontinuityCoefficients" -> normalizedCoeffAssoc,
     "pieceExpressions" -> pieceExprs,

@@ -6,7 +6,6 @@ ClearAll["Global`*"];
 
 Print["Warning: this comparison reads previously exported two-loop result files."];
 Print["Regenerate PP, PM, MP, MM after changing p2, masses, or epsOrder."];
-Print["Metadata safety note: old split-piece files do not contain full point metadata; regenerate after changing the selected point."];
 
 projectDir = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 
@@ -84,7 +83,7 @@ Mk2val = point["Mk2"];
 Xval = 1 - xval;
 lambdaVal = yval/Xval;
 aVal = lambdaVal (1 - lambdaVal);
-bVal = lambdaVal (1 - lambdaVal xval);
+bVal = lambdaVal (1 - xval);
 
 muLxVal = (1 - xval) ml2val + xval Ml2val;
 muKlambdaVal = (1 - lambdaVal) mk2val + lambdaVal Mk2val;
@@ -101,11 +100,6 @@ deltaW = (
 delta1FromDeltaW = (1 + aVal) delta0 + deltaW;
 
 delta1Final = (
-  -muKlambdaVal
-  + lambdaVal (1 - lambdaVal) Ml2val
-  + lambdaVal (1 - lambdaVal xval) sval
-);
-delta1OldCompare = (
   -muKlambdaVal
   + lambdaVal (1 - lambdaVal) Ml2val
   + lambdaVal (1 - xval) sval
@@ -190,14 +184,13 @@ Print["Kinematic point: x=", xval, ", y=", yval, ", s=p^2=", sval];
 Print["Mass squares: ml2=", ml2val, ", Ml2=", Ml2val, ", mk2=", mk2val, ", Mk2=", Mk2val];
 Print["lambda = y/(1-x): ", lambdaVal];
 Print["a = lambda (1-lambda): ", aVal];
-Print["b = lambda (1-lambda x): ", bVal];
+Print["b = lambda (1-x): ", bVal];
 Print["muLx = (1-x) ml2 + x Ml2: ", muLxVal];
 Print["muKlambda = (1-lambda) mk2 + lambda Mk2: ", muKlambdaVal];
 Print["delta0: ", delta0, " (", deltaSign["delta0", delta0], ")"];
 Print["deltaW: ", deltaW];
 Print["delta1FromDeltaW = (1+a) delta0 + deltaW: ", delta1FromDeltaW];
-Print["delta1Final current PDF = -muKlambda + lambda (1-lambda) Ml2 + lambda (1-lambda x) s: ", delta1Final, " (", deltaSign["delta1Final", delta1Final], ")"];
-Print["delta1OldCompare diagnostic = -muKlambda + lambda (1-lambda) Ml2 + lambda (1-x) s: ", delta1OldCompare];
+Print["delta1Final = -muKlambda + lambda (1-lambda) Ml2 + lambda (1-x) s: ", delta1Final, " (", deltaSign["delta1Final", delta1Final], ")"];
 Print["delta1FromDeltaW - delta1Final: ", delta1ConsistencyDifference];
 If[delta1ConsistencyDifference =!= 0,
   Print["WARNING: delta1FromDeltaW != delta1Final after FullSimplify"];
@@ -238,7 +231,6 @@ Export[
       "deltaW" -> deltaW,
       "delta1FromDeltaW" -> delta1FromDeltaW,
       "delta1Final" -> delta1Final,
-      "delta1OldCompare" -> delta1OldCompare,
       "delta1ConsistencyDifference" -> delta1ConsistencyDifference,
       "delta0Sign" -> deltaSign["delta0", delta0],
       "delta1FinalSign" -> deltaSign["delta1Final", delta1Final],

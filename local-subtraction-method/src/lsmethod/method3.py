@@ -4,29 +4,63 @@ import numpy as np
 
 
 def omega(m):
-    return 2 * math.pi ** (float(m) / 2) / math.gamma(float(m) / 2)
+    half_m = float(m) / 2
+    if abs(half_m - round(half_m)) < 1e-15 and half_m <= 0:
+        return 0.0
+    return 2 * math.pi ** half_m / math.gamma(half_m)
 
 
-def method3_prefactor(point, eps):
-    components = method3_prefactor_components(point, eps)
+def method3_prefactor(point, eps, lc_jacobian=0.25):
+    components = method3_prefactor_components(point, eps, lc_jacobian=lc_jacobian)
     return (
-        components["contour_factor"]
-        * components["omega_n_minus_1"]
-        * components["omega_n_minus_2"]
+        components["lc_jacobian"]
+        * components["contour_factor"]
+        * components["angular_prefactor"]
         / components["loop_normalization"]
         * components["one_over_xy"]
     )
 
 
-def method3_prefactor_components(point, eps):
+def method3_old_prefactor_diagnostic(point, eps):
+    components = method3_prefactor_components(point, eps)
+    return (
+        components["contour_factor"]
+        * components["old_angular_prefactor"]
+        / components["loop_normalization"]
+        * components["one_over_xy"]
+    )
+
+
+def method3_old_omega_prefactor_diagnostic(point, eps, lc_jacobian=0.25):
+    components = method3_prefactor_components(point, eps, lc_jacobian=lc_jacobian)
+    return (
+        components["lc_jacobian"]
+        * components["contour_factor"]
+        * components["old_angular_prefactor"]
+        / components["loop_normalization"]
+        * components["one_over_xy"]
+    )
+
+
+def method3_prefactor_components(point, eps, lc_jacobian=0.25):
     eps = float(eps)
     d = 4.0 - 2.0 * eps
     n = d - 2
+    omega_n = omega(n)
+    omega_n_minus_1 = omega(n - 1)
+    omega_n_minus_2 = omega(n - 2)
+    # The PDF Eq. 94 text has Omega[n-1] Omega[n-2]. Here Omega[m] denotes
+    # the unit sphere area in m-dimensional vector space, so the transverse
+    # reduction uses Omega[n] Omega[n-1].
     return {
         "d": d,
         "n": n,
-        "omega_n_minus_1": omega(n - 1),
-        "omega_n_minus_2": omega(n - 2),
+        "omega_n": omega_n,
+        "omega_n_minus_1": omega_n_minus_1,
+        "omega_n_minus_2": omega_n_minus_2,
+        "angular_prefactor": omega_n * omega_n_minus_1,
+        "old_angular_prefactor": omega_n_minus_1 * omega_n_minus_2,
+        "lc_jacobian": float(lc_jacobian),
         "contour_factor": (2 * math.pi * 1j) ** 2,
         "loop_normalization": (1j * math.pi ** (d / 2)) ** 2,
         "one_over_xy": 1.0 / (float(point.x) * float(point.y)),
@@ -67,6 +101,10 @@ def gamma_xy(point):
     )
 
 
+def gamma4(point):
+    return 1.0 + float(gamma_xy(point))
+
+
 def mapped_integrand_probe(point, eps, eta, u, v, w, rho=None, cutoff=None):
     eps_f = float(eps)
     eta_f = float(eta)
@@ -92,7 +130,8 @@ def mapped_integrand_probe(point, eps, eta, u, v, w, rho=None, cutoff=None):
     measure *= math.sin(theta) ** (-2.0 * eps_f)
     d2 = D2_equal_mass_pperp0(point, ell, eta_f)
     a_value = A_equal_mass_pperp0(point, ell, k)
-    gamma_value = gamma_xy(point)
+    old_gamma_value = gamma_xy(point)
+    gamma_value = gamma4(point)
     d4 = a_value - 2.0 * ell * k * math.cos(theta) + 1j * eta_f * float(gamma_value)
     integrand_without_jacobian = measure / (d2 * d4)
 
@@ -107,7 +146,8 @@ def mapped_integrand_probe(point, eps, eta, u, v, w, rho=None, cutoff=None):
         "jacobian": jacobian,
         "D2": d2,
         "A": a_value,
-        "Gamma_xy": gamma_value,
+        "old_Gamma_xy_without_plus_one": old_gamma_value,
+        "gamma4": gamma_value,
         "D4": d4,
         "measure": measure,
         "integrand_without_jacobian": integrand_without_jacobian,
@@ -163,7 +203,7 @@ def method3_stripped(point, eps, eta, n_samples, rho=None, scrambles=4, seed=123
     rho = math.sqrt(float(point.M2)) if rho is None else float(rho)
     eps_f = float(eps)
     eta_f = float(eta)
-    gamma_f = float(gamma_xy(point))
+    gamma_f = float(gamma4(point))
     values = []
 
     for scramble_id in range(scrambles):
@@ -224,7 +264,7 @@ def method3_stripped_cutoff(point, eps, eta, n_samples, cutoff, scrambles=4, see
         d4 = (
             A_equal_mass_pperp0(point, ell, k)
             - 2.0 * ell * k * np.cos(theta)
-            + 1j * float(eta) * float(gamma_xy(point))
+            + 1j * float(eta) * float(gamma4(point))
         )
 
         values.append(np.mean(jac * measure / (d2 * d4)))
@@ -236,7 +276,165 @@ def method3_stripped_cutoff(point, eps, eta, n_samples, cutoff, scrambles=4, see
     return mean, err
 
 
-def method3_normalized(point, eps, eta, n_samples, rho=None, scrambles=4, seed=12345):
+def _method3_normalized_cutoff_samples(point, eps, eta, n_samples, cutoff, lc_jacobian, seed):
+    cutoff = float(cutoff)
+    eps_f = float(eps)
+    pts = _qmc_points(n_samples, scramble=True, seed=seed)
+    u = np.clip(pts[:, 0], np.finfo(float).tiny, 1.0 - np.finfo(float).eps)
+    v = np.clip(pts[:, 1], np.finfo(float).tiny, 1.0 - np.finfo(float).eps)
+    w = np.clip(pts[:, 2], np.finfo(float).tiny, 1.0 - np.finfo(float).eps)
+
+    k = cutoff * u
+    ell = cutoff * v
+    theta = np.pi * w
+
+    jac = cutoff * cutoff * np.pi
+    measure = k ** (1.0 - 2.0 * eps_f) * ell ** (1.0 - 2.0 * eps_f)
+    measure *= np.sin(theta) ** (-2.0 * eps_f)
+
+    d2 = D2_equal_mass_pperp0(point, ell, float(eta))
+    d4 = (
+        A_equal_mass_pperp0(point, ell, k)
+        - 2.0 * ell * k * np.cos(theta)
+        + 1j * float(eta) * float(gamma4(point))
+    )
+    pref = complex(method3_prefactor(point, eps_f, lc_jacobian=lc_jacobian))
+    return pref * jac * measure / (d2 * d4)
+
+
+def method3_cutoff_taylor_coefficients(
+    point,
+    max_order,
+    eta,
+    n_samples,
+    cutoff,
+    scrambles=4,
+    seed=12345,
+    lc_jacobian=0.25,
+    eps_step=1e-3,
+):
+    if not point.in_support():
+        return {power: 0j for power in range(max_order + 1)}, {power: 0.0 for power in range(max_order + 1)}
+
+    if point.p_perp2 != 0:
+        raise ValueError("Method 3 currently implements p_perp2 = 0.")
+
+    nodes = np.array([float(eps_step) * i for i in range(max_order + 1)], dtype=np.float64)
+    vandermonde = np.column_stack([nodes**power for power in range(max_order + 1)])
+    values_by_scramble = []
+
+    for scramble_id in range(scrambles):
+        samples_at_nodes = [
+            _method3_normalized_cutoff_samples(
+                point=point,
+                eps=eps_node,
+                eta=eta,
+                n_samples=n_samples,
+                cutoff=cutoff,
+                lc_jacobian=lc_jacobian,
+                seed=seed + scramble_id,
+            )
+            for eps_node in nodes
+        ]
+        stacked = np.vstack(samples_at_nodes)
+        point_coefficients = np.linalg.solve(vandermonde, stacked)
+        values_by_scramble.append(np.mean(point_coefficients, axis=1))
+
+    values = np.array(values_by_scramble, dtype=np.complex128)
+    means = np.mean(values, axis=0)
+    if len(values_by_scramble) < 2:
+        errors = np.full(max_order + 1, np.nan)
+    else:
+        errors = np.std(values, axis=0, ddof=1) / math.sqrt(len(values_by_scramble))
+    return (
+        {power: complex(means[power]) for power in range(max_order + 1)},
+        {power: float(abs(errors[power])) for power in range(max_order + 1)},
+    )
+
+
+def _prefactor_taylor_coefficients(point, max_order, lc_jacobian=0.25, eps_step=1e-4):
+    nodes = np.array([float(eps_step) * i for i in range(max_order + 1)], dtype=np.float64)
+    vandermonde = np.column_stack([nodes**power for power in range(max_order + 1)])
+    values = np.array(
+        [complex(method3_prefactor(point, eps_node, lc_jacobian=lc_jacobian)) for eps_node in nodes],
+        dtype=np.complex128,
+    )
+    coeffs = np.linalg.solve(vandermonde.astype(np.complex128), values)
+    return {power: complex(coeffs[power]) for power in range(max_order + 1)}
+
+
+def method3_cutoff_integrand_expansion_coefficients(
+    point,
+    max_order,
+    eta,
+    n_samples,
+    cutoff,
+    scrambles=4,
+    seed=12345,
+    lc_jacobian=0.25,
+    prefactor_eps_step=1e-4,
+):
+    if not point.in_support():
+        return {power: 0j for power in range(max_order + 1)}, {power: 0.0 for power in range(max_order + 1)}
+
+    if point.p_perp2 != 0:
+        raise ValueError("Method 3 currently implements p_perp2 = 0.")
+
+    cutoff = float(cutoff)
+    eta_f = float(eta)
+    pref_coeffs = _prefactor_taylor_coefficients(
+        point,
+        max_order=max_order,
+        lc_jacobian=lc_jacobian,
+        eps_step=prefactor_eps_step,
+    )
+    normalized_by_scramble = []
+
+    for scramble_id in range(scrambles):
+        pts = _qmc_points(n_samples, scramble=True, seed=seed + scramble_id)
+        u = np.clip(pts[:, 0], np.finfo(float).tiny, 1.0 - np.finfo(float).eps)
+        v = np.clip(pts[:, 1], np.finfo(float).tiny, 1.0 - np.finfo(float).eps)
+        w = np.clip(pts[:, 2], np.finfo(float).tiny, 1.0 - np.finfo(float).eps)
+
+        k = cutoff * u
+        ell = cutoff * v
+        theta = np.pi * w
+        sin_theta = np.clip(np.sin(theta), np.finfo(float).tiny, None)
+        jac = cutoff * cutoff * np.pi
+
+        d2 = D2_equal_mass_pperp0(point, ell, eta_f)
+        d4 = (
+            A_equal_mass_pperp0(point, ell, k)
+            - 2.0 * ell * k * np.cos(theta)
+            + 1j * eta_f * float(gamma4(point))
+        )
+
+        base = jac * k * ell / (d2 * d4)
+        log_measure = np.log(k) + np.log(ell) + np.log(sin_theta)
+        stripped_coeffs = []
+        for order in range(max_order + 1):
+            local_factor = (-2.0 * log_measure) ** order / math.factorial(order)
+            stripped_coeffs.append(np.mean(base * local_factor))
+
+        normalized = []
+        for order in range(max_order + 1):
+            value = sum(pref_coeffs[p] * stripped_coeffs[order - p] for p in range(order + 1))
+            normalized.append(value)
+        normalized_by_scramble.append(normalized)
+
+    values = np.array(normalized_by_scramble, dtype=np.complex128)
+    means = np.mean(values, axis=0)
+    if len(normalized_by_scramble) < 2:
+        errors = np.full(max_order + 1, np.nan)
+    else:
+        errors = np.std(values, axis=0, ddof=1) / math.sqrt(len(normalized_by_scramble))
+    return (
+        {power: complex(means[power]) for power in range(max_order + 1)},
+        {power: float(abs(errors[power])) for power in range(max_order + 1)},
+    )
+
+
+def method3_normalized(point, eps, eta, n_samples, rho=None, scrambles=4, seed=12345, lc_jacobian=0.25):
     stripped, error = method3_stripped(
         point=point,
         eps=eps,
@@ -246,5 +444,5 @@ def method3_normalized(point, eps, eta, n_samples, rho=None, scrambles=4, seed=1
         scrambles=scrambles,
         seed=seed,
     )
-    pref = complex(method3_prefactor(point, eps))
+    pref = complex(method3_prefactor(point, eps, lc_jacobian=lc_jacobian))
     return pref * stripped, abs(pref) * error, stripped
