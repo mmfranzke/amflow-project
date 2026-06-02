@@ -191,6 +191,68 @@ normalizedCoeffAssoc =
       {power, coeffPowers}
     ]
   ];
+method12CoeffAssoc =
+  Association[
+    Table[
+      power -> N[
+        SeriesCoefficient[
+          Gamma[eps]^2/Xval *
+            (delta0 - I etaReg)^(-eps) *
+            (delta1 - I etaReg)^(-eps),
+          {eps, 0, power}
+        ],
+        40
+      ],
+      {power, coeffPowers}
+    ]
+  ];
+comboExprs =
+  If[AssociationQ[pieceExprs] && And @@ (KeyExistsQ[pieceExprs, #] & /@ {"PP", "PM", "MP", "MM"}),
+    <|
+      "combo_all_plus" -> pieceExprs["PP"] + pieceExprs["PM"] + pieceExprs["MP"] + pieceExprs["MM"],
+      "combo_delta_standard" -> pieceExprs["PP"] - pieceExprs["PM"] - pieceExprs["MP"] + pieceExprs["MM"],
+      "combo_delta_alt1" -> pieceExprs["PP"] - pieceExprs["PM"] + pieceExprs["MP"] - pieceExprs["MM"],
+      "combo_delta_alt2" -> pieceExprs["PP"] + pieceExprs["PM"] - pieceExprs["MP"] - pieceExprs["MM"],
+      "combo_single_x_disc" -> pieceExprs["PP"] - pieceExprs["MP"] + pieceExprs["PM"] - pieceExprs["MM"],
+      "combo_single_y_disc" -> pieceExprs["PP"] - pieceExprs["PM"] + pieceExprs["MP"] - pieceExprs["MM"]
+    |>,
+    <||>
+  ];
+comboNormalizedCoeffAssoc =
+  Association[
+    KeyValueMap[
+      Function[
+        {name, expr},
+        name -> Association[
+          Table[
+            power -> N[SeriesCoefficient[expr/(2 Pi I)^2, {eps, 0, power}], 40],
+            {power, coeffPowers}
+          ]
+        ]
+      ],
+      comboExprs
+    ]
+  ];
+comboScores =
+  Association[
+    KeyValueMap[
+      Function[
+        {name, coeffs},
+        name -> N[
+          Sqrt[
+            Total[
+              Table[
+                Abs[coeffs[power] - method12CoeffAssoc[power]]^2,
+                {power, coeffPowers}
+              ]
+            ]
+          ],
+          40
+        ]
+      ],
+      comboNormalizedCoeffAssoc
+    ]
+  ];
 
 Print["Fixed-eps two-loop comparison"];
 TwoLoopPrintPoint[point];
@@ -218,6 +280,13 @@ Print["AMFLOW_OBJECT_NORMALIZATION_FACTOR=1/(2 Pi I)^2"];
 Print["AMFLOW_OBJECT_REAL_PART_TAKEN=False"];
 Print["AMFLOW_OBJECT_SUMMED_PIECES=True"];
 Print["AMFLOW_OBJECT_DOUBLE_DISCONTINUITY=raw combination/(2 Pi I)^2"];
+Print["AMFLOW_SIGN_PATTERN_DIAGNOSTIC=default object remains combo_all_plus; signed delta patterns are diagnostic only"];
+Print["AMFLOW_SIGN_PATTERN_combo_all_plus=PP+PM+MP+MM"];
+Print["AMFLOW_SIGN_PATTERN_combo_delta_standard=PP-PM-MP+MM, corresponding to [P-M]_x [P-M]_y if P/M are opposite i0 sides"];
+Print["AMFLOW_SIGN_PATTERN_combo_delta_alt1=PP-PM+MP-MM, diagnostic alternate single-axis convention"];
+Print["AMFLOW_SIGN_PATTERN_combo_delta_alt2=PP+PM-MP-MM, diagnostic alternate single-axis convention"];
+Print["AMFLOW_SIGN_PATTERN_combo_single_x_disc=PP-MP+PM-MM, x-linear denominator discontinuity diagnostic"];
+Print["AMFLOW_SIGN_PATTERN_combo_single_y_disc=PP-PM+MP-MM, y-linear denominator discontinuity diagnostic"];
 Print["AMFLOW_COEFF_POWERS=", InputForm[coeffPowers]];
 Do[
   Print[
@@ -226,6 +295,24 @@ Do[
     " NORMALIZED=", InputForm[normalizedCoeffAssoc[power]]
   ],
   {power, coeffPowers}
+];
+KeyValueMap[
+  Function[
+    {comboName, coeffs},
+    Do[
+      Print[
+        "AMFLOW_COMBO_COEFF NAME=", comboName,
+        " POWER=", power,
+        " VALUE=", InputForm[coeffs[power]],
+        " METHOD12=", InputForm[method12CoeffAssoc[power]],
+        " DIFF=", InputForm[N[coeffs[power] - method12CoeffAssoc[power], 40]],
+        " RATIO=", InputForm[N[coeffs[power]/method12CoeffAssoc[power], 40]],
+        " SCORE=", InputForm[comboScores[comboName]]
+      ],
+      {power, coeffPowers}
+    ]
+  ],
+  comboNormalizedCoeffAssoc
 ];
 Do[
   Print[
@@ -255,6 +342,9 @@ Export[
     "normalizationFactor" -> HoldForm[1/(2 Pi I)^2],
     "rawPieceCombinationCoefficients" -> rawCoeffAssoc,
     "doubleDiscontinuityCoefficients" -> normalizedCoeffAssoc,
+    "method12Coefficients" -> method12CoeffAssoc,
+    "doubleDiscontinuitySignPatternDiagnostics" -> comboNormalizedCoeffAssoc,
+    "doubleDiscontinuitySignPatternScores" -> comboScores,
     "pieceExpressions" -> pieceExprs,
     "doubleDiscontinuityExpression" -> discExpr
   |>
@@ -280,6 +370,9 @@ Export[
     "normalizationFactor" -> HoldForm[1/(2 Pi I)^2],
     "rawPieceCombinationCoefficients" -> rawCoeffAssoc,
     "doubleDiscontinuityCoefficients" -> normalizedCoeffAssoc,
+    "method12Coefficients" -> method12CoeffAssoc,
+    "doubleDiscontinuitySignPatternDiagnostics" -> comboNormalizedCoeffAssoc,
+    "doubleDiscontinuitySignPatternScores" -> comboScores,
     "pieceExpressions" -> pieceExprs,
     "doubleDiscontinuityExpression" -> discExpr
   |>

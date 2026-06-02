@@ -17,13 +17,45 @@
 
 ClearAll["Global`*"];
 
-x = 3/10;
-y = 1/4;
-s = 0; (* s is p^2 in eq:method1-Delta0-Deltaw-def and eq:Delta1-final. *)
-ml2 = 49/100;
-Ml2 = 4;
-mk2 = 1/4;
-Mk2 = 81/100;
+points = <|
+  "branch_safe_rational" -> <|
+    "x" -> 3/10,
+    "y" -> 1/4,
+    "s" -> 0,
+    "ml2" -> 49/100,
+    "Ml2" -> 4,
+    "mk2" -> 1/4,
+    "Mk2" -> 81/100
+  |>,
+  "equal_mass_offshell_positive" -> <|
+    "x" -> 1/4,
+    "y" -> 1/4,
+    "s" -> 5,
+    "ml2" -> 1,
+    "Ml2" -> 1,
+    "mk2" -> 1,
+    "Mk2" -> 1
+  |>
+|>;
+
+pointName = Environment["TWO_LOOP_POINT"];
+If[! StringQ[pointName] || StringLength[pointName] == 0,
+  pointName = "branch_safe_rational"
+];
+If[! KeyExistsQ[points, pointName],
+  Print["Unknown point: ", pointName];
+  Print["Known points: ", Keys[points]];
+  Abort[];
+];
+point = points[pointName];
+
+x = point["x"];
+y = point["y"];
+s = point["s"]; (* s is p^2 in eq:method1-Delta0-Deltaw-def and eq:Delta1-final. *)
+ml2 = point["ml2"];
+Ml2 = point["Ml2"];
+mk2 = point["mk2"];
+Mk2 = point["Mk2"];
 
 (* eq:lambda, with X = 1 - x from the support variables. *)
 X = 1 - x;
@@ -99,6 +131,7 @@ coefficients[expr_] := FullSimplify[
 printValue[label_, value_] := Print[label, " = ", InputForm[value]];
 
 Print["== Kinematic point =="];
+printValue["point", pointName];
 printValue["x (eq:support-theta)", x];
 printValue["y (eq:support-theta)", y];
 printValue["s = p^2", s];
@@ -125,9 +158,16 @@ printValue[
 printValue["z (eq:method1-theta-z-def)", FullSimplify[z]];
 
 Print["\n== Expected sanity checks =="];
-printValue["lambda == 5/14", FullSimplify[lambda == 5/14]];
-printValue["Delta0 == 1543/1000", FullSimplify[Delta0 == 1543/1000]];
-printValue["Delta1 == 459/980", FullSimplify[Delta1 == 459/980]];
+If[pointName == "branch_safe_rational",
+  printValue["lambda == 5/14", FullSimplify[lambda == 5/14]];
+  printValue["Delta0 == 1543/1000", FullSimplify[Delta0 == 1543/1000]];
+  printValue["Delta1 == 459/980", FullSimplify[Delta1 == 459/980]];
+];
+If[pointName == "equal_mass_offshell_positive",
+  printValue["lambda == 1/3", FullSimplify[lambda == 1/3]];
+  printValue["Delta0 == 1/16", FullSimplify[Delta0 == 1/16]];
+  printValue["Delta1 current PDF == 3/4", FullSimplify[Delta1 == 3/4]];
+];
 
 Print["\n== Hypergeometric identity check =="];
 printValue[

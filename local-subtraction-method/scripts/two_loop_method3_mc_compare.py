@@ -7,11 +7,30 @@ import re
 import subprocess
 import math
 import sys
+import shutil
 from pathlib import Path
 from fractions import Fraction
 
 import _path  # noqa: F401
 import numpy as np
+import mpmath as mp
+from lsmethod.closed_forms import (
+    product_closed_form,
+    product_laurent_coefficients,
+    residue_closed_form,
+    residue_ingredients as closed_form_residue_ingredients,
+    residue_laurent_coefficients,
+)
+from lsmethod.kernels import (
+    l_residue_A1 as kernel_l_residue_A1,
+    l_residue_A1_short_without_extra_term as kernel_l_residue_A1_short,
+    l_residue_B1 as kernel_l_residue_B1,
+    l_residue_closed_ingredients as kernel_l_residue_closed_ingredients,
+    l_residue_delta0 as kernel_l_residue_delta0,
+    l_residue_extra_offshell_term as kernel_l_residue_extra_offshell_term,
+    l_residue_z as kernel_l_residue_z,
+    method1_l_residue_closed as kernel_method1_l_residue_closed,
+)
 from lsmethod.method3 import (
     gamma4,
     gamma_xy,
@@ -173,10 +192,16 @@ def parse_args():
   ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --radial-cutoff-scan --eps-list 0.2,0.15,0.1,0.075,0.05 --Kmax-list 100,200,500,1000,2000 --amflow skip --ratio-fit
   ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --radial-cutoff-scan --tail-extrapolate --eps-list 0.2,0.15,0.1,0.075,0.05 --Kmax-list 100,200,500,1000,2000 --amflow skip
   ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --method3-coeff-cutoff-log --amflow skip
+  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --method1-l-residue-direct-check --eps 0.1 --amflow reuse
+  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --method1-l-residue-closed-check --eps 0.1 --amflow imported
+  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --compare-closed-form --amflow imported
+  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --residue-1d-check --eps 0.1 --amflow reuse
+  ./run.sh two-loop-method3-mc-compare --show-amflow-import-help
   ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --compare-coefficients --amflow reuse --diagnose-method12-conventions
 """
     parser = argparse.ArgumentParser(description=__doc__, epilog=examples, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--point", choices=sorted(POINTS), default="equal_mass_onshell_branch")
+    parser.add_argument("--points", default=None, help="Comma-separated point names.")
     parser.add_argument("--all-points", action="store_true")
     parser.add_argument("--eps", default="1/10")
     parser.add_argument("--eps-list", nargs="*", default=None)
@@ -187,7 +212,11 @@ def parse_args():
     parser.add_argument("--lc-jacobian", default="1/4")
     parser.add_argument("--method3-label-convention", choices=["pdf", "amflow"], default="pdf")
     parser.add_argument("--seed", type=int, default=12345)
-    parser.add_argument("--amflow", choices=["fresh", "reuse", "skip"], default="fresh")
+    parser.add_argument("--amflow", choices=["fresh", "reuse", "imported", "skip"], default="fresh")
+    parser.add_argument("--amflow-import-log", default=None)
+    parser.add_argument("--amflow-import-result", default=None)
+    parser.add_argument("--amflow-import-trust-metadata", action="store_true")
+    parser.add_argument("--show-amflow-import-help", action="store_true")
     parser.add_argument("--amflow-eps-order", default="4")
     parser.add_argument("--precision-goal", default="10")
     parser.add_argument("--dps", type=int, default=50)
@@ -206,7 +235,10 @@ def parse_args():
     parser.add_argument("--tail-fit-unweighted", action="store_true")
     parser.add_argument("--tail-fit-self-test", action="store_true")
     parser.add_argument("--method3-coeff-cutoff-log", action="store_true")
-    parser.add_argument("--method3-integrand-eps-expansion", action="store_true")
+    parser.add_argument("--method3-integrand-eps-expansion", "--transverse-integrand-expansion-check", action="store_true", dest="method3_integrand_eps_expansion")
+    parser.add_argument("--method1-l-residue-direct-check", "--residue-1d-check", action="store_true", dest="method1_l_residue_direct_check")
+    parser.add_argument("--method1-l-residue-closed-check", "--compare-closed-form", action="store_true", dest="compare_closed_form")
+    parser.add_argument("--transverse-mc-check", action="store_true")
     parser.add_argument("--method3-coeff-order", type=int, default=2)
     parser.add_argument("--method3-coeff-eps-step", default="1e-3")
     parser.add_argument("--log-fit-Kmin", default="20")
@@ -214,7 +246,7 @@ def parse_args():
     parser.add_argument("--reconstruction-eps", default=None)
     parser.add_argument("--assume-cutoff-dimreg-map", action="store_true")
     parser.add_argument("--compare-coefficients", "--eps-fit", action="store_true")
-    parser.add_argument("--diagnose-method12-conventions", action="store_true")
+    parser.add_argument("--diagnose-method12-conventions", "--diagnose-product-form", action="store_true", dest="diagnose_method12_conventions")
     parser.add_argument("--fit-min-power", type=int, default=-2)
     parser.add_argument("--fit-max-power", type=int, default=2)
     return parser.parse_args()
@@ -224,11 +256,12 @@ def complex_from_wolfram(text):
     text = text.strip()
     if text.startswith("InputForm[") and text.endswith("]"):
         text = text[len("InputForm[") : -1].strip()
+    text = text.replace("\\\n", "")
     text = text.replace("*^", "e")
     text = re.sub(r"(?<=\d)`{1,2}[0-9.]*", "", text)
     text = re.sub(r"(?<=\.)`{1,2}[0-9.]*", "", text)
     text = text.replace("I", "j")
-    text = text.replace(" ", "")
+    text = re.sub(r"\s+", "", text)
     if text.startswith("Complex[") and text.endswith("]"):
         inner = text[len("Complex[") : -1]
         real, imag = inner.split(",", 1)
@@ -249,6 +282,61 @@ def parse_amflow_coefficients(output):
     return raw, normalized
 
 
+def parse_wolfram_association_coefficients(text, key):
+    text = text.replace("\\\n", "")
+    match = re.search(rf'"{re.escape(key)}"\s*->\s*<\|(.+?)\|>', text, flags=re.S)
+    if not match:
+        return {}
+    body = match.group(1)
+    coeffs = {}
+    pattern = re.compile(r"([-+]?\d+)\s*->\s*(.+?)(?=,\s*[-+]?\d+\s*->|\s*$)", flags=re.S)
+    for entry in pattern.finditer(body):
+        power = int(entry.group(1))
+        value_text = entry.group(2).strip().rstrip(",")
+        try:
+            coeffs[power] = complex_from_wolfram(value_text)
+        except Exception:
+            continue
+    return coeffs
+
+
+def parse_imported_amflow_coefficients(text):
+    raw, normalized = parse_amflow_coefficients(text)
+    if normalized:
+        return raw, normalized
+    raw = parse_wolfram_association_coefficients(text, "rawPieceCombinationCoefficients")
+    normalized = parse_wolfram_association_coefficients(text, "doubleDiscontinuityCoefficients")
+    if normalized:
+        return raw, normalized
+
+    in_raw_amflow_table = False
+    for line in text.splitlines():
+        if line.strip() == "== Raw AMFlow Laurent Coefficients ==":
+            in_raw_amflow_table = True
+            continue
+        if in_raw_amflow_table and line.startswith("== "):
+            break
+        if not in_raw_amflow_table:
+            continue
+        if not line.strip().startswith("| c["):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        power_match = re.fullmatch(r"c\[([-+]?\d+)\]", cells[0])
+        if not power_match:
+            continue
+        power = int(power_match.group(1))
+        try:
+            if "not run" not in cells[1]:
+                raw[power] = complex_from_wolfram(cells[1])
+            if "not run" not in cells[2]:
+                normalized[power] = complex_from_wolfram(cells[2])
+        except Exception:
+            continue
+    return raw, normalized
+
+
 def parse_amflow_object_lines(output):
     fields = {}
     for line in output.splitlines():
@@ -256,6 +344,183 @@ def parse_amflow_object_lines(output):
             key, _, value = line.partition("=")
             fields[key.removeprefix("AMFLOW_OBJECT_")] = value.strip()
     return fields
+
+
+def parse_amflow_combo_coefficients(output):
+    combos = {}
+    pattern = re.compile(
+        r"AMFLOW_COMBO_COEFF NAME=([A-Za-z0-9_]+)\s+POWER=([-+]?\d+)\s+"
+        r"VALUE=(.+?)\s+METHOD12=(.+?)\s+DIFF=(.+?)\s+RATIO=(.+?)\s+SCORE=(.+)"
+    )
+    for match in pattern.finditer(output):
+        name = match.group(1)
+        power = int(match.group(2))
+        try:
+            entry = {
+                "value": complex_from_wolfram(match.group(3)),
+                "method12": complex_from_wolfram(match.group(4)),
+                "diff": complex_from_wolfram(match.group(5)),
+                "ratio": complex_from_wolfram(match.group(6)),
+                "score": complex_from_wolfram(match.group(7)).real,
+            }
+        except Exception:
+            continue
+        combos.setdefault(name, {})[power] = entry
+    return combos
+
+
+def amflow_import_log_dir():
+    return repo_root() / "amflow-project" / "logs" / "imported_amflow"
+
+
+def amflow_import_result_dir():
+    return repo_root() / "amflow-project" / "results" / "imported_amflow"
+
+
+def ensure_amflow_import_dirs():
+    amflow_import_log_dir().mkdir(parents=True, exist_ok=True)
+    amflow_import_result_dir().mkdir(parents=True, exist_ok=True)
+
+
+def print_amflow_import_help():
+    ensure_amflow_import_dirs()
+    log_dir = amflow_import_log_dir()
+    result_dir = amflow_import_result_dir()
+    print("AMFlow import workflow")
+    print()
+    print("Put old AMFlow coefficient logs here:")
+    print(f"  {log_dir}")
+    print()
+    print("Put old AMFlow result associations or .res files here:")
+    print(f"  {result_dir}")
+    print()
+    print("Suggested filenames:")
+    print("  logs/imported_amflow/<point>_amflow_coefficients.log")
+    print("  results/imported_amflow/<point>_amflow_result.wl")
+    print("  results/imported_amflow/<point>_amflow_result.res")
+    print()
+    print("Example import commands:")
+    print("  ./run.sh two-loop-method3-mc-compare --amflow-import-log /path/to/amflow-1553698.out --point equal_mass_offshell_positive --amflow skip")
+    print("  cp /path/to/amflow-1553698.out logs/imported_amflow/equal_mass_offshell_positive_amflow_coefficients.log")
+    print()
+    print("Example comparison command:")
+    print("  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --method1-l-residue-closed-check --eps 0.1 --amflow imported")
+    print()
+    print("Metadata policy:")
+    print("  Imported files should contain AMFLOW_OBJECT_POINT=<point> and AMFLOW_COEFF_POWER lines.")
+    print("  If full metadata is missing, use --amflow-import-trust-metadata only after manually checking the file.")
+
+
+def process_amflow_import_args(args):
+    ensure_amflow_import_dirs()
+    copied = []
+    if args.amflow_import_log:
+        source = Path(args.amflow_import_log).expanduser()
+        if not source.exists():
+            raise SystemExit(f"AMFlow import log does not exist: {source}")
+        dest = amflow_import_log_dir() / source.name
+        shutil.copy2(source, dest)
+        copied.append(dest)
+    if args.amflow_import_result:
+        source = Path(args.amflow_import_result).expanduser()
+        if not source.exists():
+            raise SystemExit(f"AMFlow import result does not exist: {source}")
+        dest = amflow_import_result_dir() / source.name
+        shutil.copy2(source, dest)
+        copied.append(dest)
+    for dest in copied:
+        print(f"Imported AMFlow file copied to: {dest}")
+
+
+def imported_amflow_candidate_paths(point_name):
+    ensure_amflow_import_dirs()
+    patterns = [
+        f"{point_name}_amflow_coefficients.log",
+        f"*{point_name}*coefficients*.log",
+        f"*{point_name}*.log",
+        f"*{point_name}*.out",
+    ]
+    paths = []
+    for pattern in patterns:
+        paths.extend(sorted(amflow_import_log_dir().glob(pattern)))
+    paths.extend(sorted(amflow_import_result_dir().glob(f"*{point_name}*")))
+    seen = set()
+    unique = []
+    for path in paths:
+        if path not in seen and path.is_file():
+            unique.append(path)
+            seen.add(path)
+    return unique
+
+
+def imported_metadata_matches_point(text, point_name):
+    point = get_point(point_name)
+    has_name = (
+        f"AMFLOW_OBJECT_POINT={point_name}" in text
+        or f'"name" -> "{point_name}"' in text
+        or f"name -> {point_name}" in text
+        or f"point: {point_name}" in text
+        or f"point {point_name}" in text
+    )
+    expected_fragments = [
+        f"pPlus={point.p_plus}",
+        f"pMinus={point.p_minus}",
+        f"pPerp2={point.p_perp2}",
+        f"p2={point.p2}",
+        f"x={point.x}",
+        f"y={point.y}",
+        f"ml2={point.ml2}",
+        f"Ml2={point.Ml2}",
+        f"mk2={point.mk2}",
+        f"Mk2={point.Mk2}",
+    ]
+    has_full_kinematic_line = all(fragment in text for fragment in expected_fragments)
+    has_metadata_association = "pointMetadata" in text and all(str(value) in text for value in [
+        point.p_plus,
+        point.p_minus,
+        point.p2,
+        point.p_perp2,
+        point.x,
+        point.y,
+        point.ml2,
+        point.Ml2,
+        point.mk2,
+        point.Mk2,
+    ])
+    return has_name and (has_full_kinematic_line or has_metadata_association)
+
+
+def load_imported_amflow_coefficients(point_name, args):
+    candidates = imported_amflow_candidate_paths(point_name)
+    if not candidates:
+        print(f"No imported AMFlow file found for point {point_name}.")
+        print_amflow_import_help()
+        return {}, {}, {}, {}, ""
+
+    missing_metadata_paths = []
+    for path in candidates:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        raw, normalized = parse_imported_amflow_coefficients(text)
+        if not normalized:
+            continue
+        if not imported_metadata_matches_point(text, point_name):
+            missing_metadata_paths.append(path)
+            if not args.amflow_import_trust_metadata:
+                continue
+        print(f"AMFlow imported coefficients loaded from: {path}")
+        if missing_metadata_paths and args.amflow_import_trust_metadata:
+            print("WARNING: imported AMFlow file lacks full metadata; trusting it because --amflow-import-trust-metadata was passed.")
+        return raw, normalized, parse_amflow_object_lines(text), parse_amflow_combo_coefficients(text), text
+
+    if missing_metadata_paths and not args.amflow_import_trust_metadata:
+        print("Imported AMFlow file lacks full metadata. Please confirm or rerun AMFlow fresh.")
+        print("Candidate files with coefficients but insufficient metadata:")
+        for path in missing_metadata_paths:
+            print(f"  {path}")
+        print("Use --amflow-import-trust-metadata only after manually checking the selected point.")
+    else:
+        print(f"No parseable imported AMFlow coefficient file found for point {point_name}.")
+    return {}, {}, {}, {}, ""
 
 
 def run_amflow(point_name, eps, args):
@@ -338,6 +603,9 @@ def run_amflow_eps_values(point_name, eps_values, args):
 
 
 def run_amflow_coefficients(point_name, eps, args):
+    if args.amflow == "imported":
+        return load_imported_amflow_coefficients(point_name, args)
+
     repo = repo_root()
     run_sh = repo / "amflow-project" / "run.sh"
     log_dir = repo / "amflow-project" / "logs"
@@ -363,11 +631,12 @@ def run_amflow_coefficients(point_name, eps, args):
     log_path.write_text(proc.stdout, encoding="utf-8")
     print(f"AMFlow coefficient log written to: {log_path}")
     if proc.returncode != 0:
-        return {}, {}, {}, proc.stdout
+        return {}, {}, {}, {}, proc.stdout
 
     raw, normalized = parse_amflow_coefficients(proc.stdout)
     object_fields = parse_amflow_object_lines(proc.stdout)
-    return raw, normalized, object_fields, proc.stdout
+    combo_coeffs = parse_amflow_combo_coefficients(proc.stdout)
+    return raw, normalized, object_fields, combo_coeffs, proc.stdout
 
 
 def ensure_amflow_order_for_powers(args, max_power):
@@ -558,7 +827,7 @@ def compare_point(point_name, eps, eta, args):
     d1_pow = complex(float(delta1_value(point)), -1e-30) ** (-float(eps))
 
     amflow = None
-    if args.amflow in ("fresh", "reuse"):
+    if args.amflow in ("fresh", "reuse", "imported"):
         if args.amflow == "reuse":
             print("Reusing AMFlow fixed-eps original integral expression for this point...")
         else:
@@ -1302,6 +1571,40 @@ def print_common_factor_diagnostics(point, method12_coeffs, normalized_coeffs, e
     print()
     print("method12 / AMFlow_from_coeffs at fixed eps:")
     print_small_table(["eps", "method12 / AMFlow_from_coeffs"], fixed_rows)
+
+
+def print_amflow_sign_pattern_diagnostics(combo_coeffs, min_power, max_power):
+    if not combo_coeffs:
+        print()
+        print("== AMFlow Double-Discontinuity Sign Pattern Diagnostic ==")
+        print("No signed-combination coefficients were parsed from AMFlow output.")
+        return
+
+    print()
+    print("== AMFlow Double-Discontinuity Sign Pattern Diagnostic ==")
+    print("Default AMFlow_normalized is still combo_all_plus. The signed combinations below are diagnostic only.")
+    print("combo_delta_standard = PP - PM - MP + MM corresponds to [P-M]_x [P-M]_y if P/M are opposite i0 sides.")
+    summary_rows = []
+    for name, coeffs in combo_coeffs.items():
+        score_values = [entry["score"] for entry in coeffs.values()]
+        score = score_values[0] if score_values else None
+        row = [name, fmt_float(score)]
+        for power in range(min_power, max_power + 1):
+            entry = coeffs.get(power)
+            row.extend(
+                [
+                    fmt_complex(None if entry is None else entry["value"]),
+                    fmt_complex(None if entry is None else entry["diff"]),
+                    fmt_complex(None if entry is None else entry["ratio"]),
+                ]
+            )
+        summary_rows.append(row)
+    summary_rows.sort(key=lambda row: float("inf") if row[1] == "n/a" else float(row[1]))
+
+    headers = ["combination", "score"]
+    for power in range(min_power, max_power + 1):
+        headers.extend([f"c[{power}]", f"diff c[{power}]", f"ratio c[{power}]"])
+    print_small_table(headers, summary_rows)
 
 
 def method12_convention_variants(point, min_power, max_power):
@@ -2577,9 +2880,9 @@ def run_method3_integrand_expansion_mode(point_names, eta, args):
     output_dir = repo_root() / "amflow-project" / "targets" / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
     report_name = (
-        "two_loop_method3_integrand_expansion_all_points.txt"
+        "two_loop_transverse_integrand_expansion_all_points.txt"
         if len(point_names) > 1
-        else f"two_loop_method3_integrand_expansion_{point_names[0]}.txt"
+        else f"two_loop_transverse_integrand_expansion_{point_names[0]}.txt"
     )
     report_path = output_dir / report_name
     with report_path.open("w", encoding="utf-8") as report:
@@ -2589,6 +2892,899 @@ def run_method3_integrand_expansion_mode(point_names, eta, args):
             print("  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --method3-integrand-eps-expansion --amflow skip")
             results = [run_method3_integrand_expansion_for_point(point_name, eta, args) for point_name in point_names]
     print(f"Method3 integrand expansion report written to: {report_path}")
+    return results
+
+
+def omega_float(m):
+    half_m = float(m) / 2.0
+    return 2.0 * math.pi**half_m / math.gamma(half_m)
+
+
+def require_mpmath_for_l_residue():
+    try:
+        import mpmath  # noqa: F401
+    except Exception as exc:
+        raise SystemExit(
+            "ERROR: --method1-l-residue-direct-check requires mpmath.\n"
+            "Install it in the Python environment used by run.sh, for example:\n"
+            "  python3 -m pip install mpmath"
+        ) from exc
+
+
+def l_residue_ingredients(point, eps, eta, contour_sign, short_C_diagnostic=False):
+    eps_f = float(eps)
+    x = float(point.x)
+    y = float(point.y)
+    p2 = float(point.p2)
+    ml2 = float(point.ml2)
+    Ml2 = float(point.Ml2)
+    mk2 = float(point.mk2)
+    Mk2 = float(point.Mk2)
+    lam = y / (float(point.p_plus) - x)
+    kappa = lam * (1.0 - lam)
+    mu_k = (1.0 - lam) * mk2 + lam * Mk2
+    delta0 = float(delta0_value(point))
+    a1_short = mu_k - kappa * (1.0 - x) * p2 + kappa * (1.0 - x) / x * ml2
+    extra_offshell_term = -lam * (1.0 - lam * x) * p2
+    a1_full = a1_short + extra_offshell_term
+    a1 = a1_short if short_C_diagnostic else a1_full
+    b1 = kappa / x
+    d = 4.0 - 2.0 * eps_f
+    n = 2.0 - 2.0 * eps_f
+    omega_n = omega_float(n)
+    prefactor = (
+        float(contour_sign)
+        * math.gamma(eps_f)
+        / (1.0 - x)
+        * (1.0 / (1j * math.pi ** (d / 2.0)))
+        * 0.5
+        * (2.0 * math.pi * 1j)
+        * omega_n
+        / 2.0
+    )
+    return {
+        "eps": eps,
+        "eta": eta,
+        "x": point.x,
+        "y": point.y,
+        "pPlus": point.p_plus,
+        "pMinus": point.p_minus,
+        "p2": point.p2,
+        "lambda": lam,
+        "kappa": kappa,
+        "mu_k_lambda": mu_k,
+        "Delta0": delta0,
+        "A1": a1,
+        "A1_full": a1_full,
+        "A1_short_without_extra_term": a1_short,
+        "extra_offshell_term": extra_offshell_term,
+        "C_full_includes_extra_offshell_term": not short_C_diagnostic,
+        "B1": b1,
+        "d": d,
+        "n": n,
+        "Omega_n": omega_n,
+        "contour_sign": contour_sign,
+        "prefactor": prefactor,
+    }
+
+
+def _adaptive_simpson_complex(f, a, b, tol=1e-9, max_depth=24):
+    def simpson(fa, fm, fb, a, b):
+        return (b - a) * (fa + 4.0 * fm + fb) / 6.0
+
+    fa = f(a)
+    fb = f(b)
+    m = (a + b) / 2.0
+    fm = f(m)
+    whole = simpson(fa, fm, fb, a, b)
+
+    def recurse(a, b, fa, fm, fb, whole, depth):
+        m = (a + b) / 2.0
+        lm = (a + m) / 2.0
+        rm = (m + b) / 2.0
+        flm = f(lm)
+        frm = f(rm)
+        left = simpson(fa, flm, fm, a, m)
+        right = simpson(fm, frm, fb, m, b)
+        delta = left + right - whole
+        if depth <= 0 or abs(delta) < 15.0 * tol:
+            return left + right + delta / 15.0
+        return (
+            recurse(a, m, fa, flm, fm, left, depth - 1)
+            + recurse(m, b, fm, frm, fb, right, depth - 1)
+        )
+
+    return recurse(a, b, fa, fm, fb, whole, max_depth)
+
+
+def _integrate_complex_piecewise(f, points, tol=1e-9):
+    total = 0j
+    for a, b in zip(points[:-1], points[1:]):
+        if b <= a:
+            continue
+        total += _adaptive_simpson_complex(f, float(a), float(b), tol=tol / max(1, len(points) - 1))
+    return total
+
+
+def l_residue_integrand_float(t, ingredients):
+    eps_f = float(ingredients["eps"])
+    eta_f = float(ingredients["eta"])
+    a1 = ingredients["A1"]
+    b1 = ingredients["B1"]
+    delta0 = ingredients["Delta0"]
+    return (
+        complex(t, 0.0) ** (-eps_f)
+        * complex(a1 + b1 * t, -eta_f) ** (-eps_f)
+        / complex(t + delta0, -eta_f)
+    )
+
+
+def l_residue_integral_cutoff_float(ingredients, tmax):
+    eps_f = float(ingredients["eps"])
+    scale = max(float(tmax), 1.0)
+    near_zero = min(1e-10, scale * 1e-12)
+
+    def f(t):
+        return l_residue_integrand_float(t, ingredients)
+
+    points = [near_zero]
+    for frac in (1e-6, 1e-4, 1e-2, 0.1, 0.3, 0.6, 1.0):
+        value = float(tmax) * frac
+        if near_zero < value <= float(tmax):
+            points.append(value)
+    points = sorted(set(points))
+    integral = _integrate_complex_piecewise(f, points, tol=1e-8)
+    # Analytic small-t estimate of the endpoint omitted by near_zero.
+    endpoint_scale = complex(ingredients["A1"], -float(ingredients["eta"])) ** (-eps_f) / complex(ingredients["Delta0"], -float(ingredients["eta"]))
+    integral += endpoint_scale * near_zero ** (1.0 - eps_f) / (1.0 - eps_f)
+    return ingredients["prefactor"] * integral
+
+
+def l_residue_integral_infinite_float(ingredients):
+    z_end = 1.0 - 1e-12
+
+    def fz(z):
+        t = z / (1.0 - z)
+        jac = 1.0 / (1.0 - z) ** 2
+        return jac * l_residue_integrand_float(t, ingredients)
+
+    z0 = 1e-12
+    z_points = [z0, 1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 0.1, 0.5, 0.9, 0.99, 0.999, 0.9999, 0.99999, 0.999999, z_end]
+    integral = _integrate_complex_piecewise(fz, z_points, tol=1e-8)
+    eps_f = float(ingredients["eps"])
+    endpoint_scale = complex(ingredients["A1"], -float(ingredients["eta"])) ** (-eps_f) / complex(ingredients["Delta0"], -float(ingredients["eta"]))
+    integral += endpoint_scale * z0 ** (1.0 - eps_f) / (1.0 - eps_f)
+    return ingredients["prefactor"] * integral
+
+
+def l_residue_integrals_mpmath(point, eps, eta, contour_sign, dps=50, short_C_diagnostic=False):
+    try:
+        import mpmath as mp  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(
+            "The direct l-residue diagnostic requires mpmath. "
+            "Install it in the Python environment used by run.sh, for example: "
+            "python3 -m pip install mpmath"
+        ) from exc
+
+    mp.mp.dps = int(dps)
+    eps_mp = mp.mpf(str(float(eps)))
+    eta_mp = mp.mpf(str(float(eta)))
+    x = mp.mpf(point.x.numerator) / point.x.denominator
+    y = mp.mpf(point.y.numerator) / point.y.denominator
+    p_plus = mp.mpf(point.p_plus.numerator) / point.p_plus.denominator
+    p2 = mp.mpf(point.p2.numerator) / point.p2.denominator
+    ml2 = mp.mpf(point.ml2.numerator) / point.ml2.denominator
+    mk2 = mp.mpf(point.mk2.numerator) / point.mk2.denominator
+    Mk2 = mp.mpf(point.Mk2.numerator) / point.Mk2.denominator
+    lam = y / (p_plus - x)
+    kappa = lam * (1 - lam)
+    mu_k = (1 - lam) * mk2 + lam * Mk2
+    delta0 = mp.mpf(delta0_value(point).numerator) / delta0_value(point).denominator
+    a1_short = mu_k - kappa * (1 - x) * p2 + kappa * (1 - x) / x * ml2
+    extra_offshell_term = -lam * (1 - lam * x) * p2
+    a1 = a1_short if short_C_diagnostic else a1_short + extra_offshell_term
+    b1 = kappa / x
+    d = 4 - 2 * eps_mp
+    n = 2 - 2 * eps_mp
+    omega_n = 2 * mp.pi ** (n / 2) / mp.gamma(n / 2)
+    pref = (
+        contour_sign
+        * mp.gamma(eps_mp)
+        / (1 - x)
+        * (1 / (1j * mp.pi ** (d / 2)))
+        * mp.mpf("0.5")
+        * (2 * mp.pi * 1j)
+        * omega_n
+        / 2
+    )
+
+    def integrand_t(t):
+        return t ** (-eps_mp) * (a1 + b1 * t - 1j * eta_mp) ** (-eps_mp) / (t + delta0 - 1j * eta_mp)
+
+    z0 = mp.mpf("1e-30")
+    z_end = 1 - mp.mpf("1e-20")
+    z_splits = [z0, mp.mpf("1e-10"), mp.mpf("1e-8"), mp.mpf("1e-6"), mp.mpf("1e-4"), mp.mpf("1e-2"), mp.mpf("0.1"), mp.mpf("0.5"), mp.mpf("0.9"), mp.mpf("0.99"), mp.mpf("0.999"), mp.mpf("0.9999"), mp.mpf("0.99999"), mp.mpf("0.999999"), z_end]
+    if a1 < 0 and b1 > 0:
+        t_root = -a1 / b1
+        z_root = t_root / (1 + t_root)
+        if z0 < z_root < z_end:
+            z_splits.extend([z_root * (1 - mp.mpf("1e-8")), z_root, z_root * (1 + mp.mpf("1e-8"))])
+            z_splits = sorted(set(z_splits))
+
+    def integrand_z(z):
+        t = z / (1 - z)
+        return integrand_t(t) / (1 - z) ** 2
+
+    # Avoid evaluating the mapped integrand exactly at z=0 or z=1.  The
+    # omitted pieces are tiny endpoint estimates for t -> 0 and t -> infinity.
+    endpoint_scale = (a1 - 1j * eta_mp) ** (-eps_mp) / (delta0 - 1j * eta_mp)
+    small_t_endpoint = endpoint_scale * z0 ** (1 - eps_mp) / (1 - eps_mp)
+    t_end = z_end / (1 - z_end)
+    large_t_tail = b1 ** (-eps_mp) * t_end ** (-2 * eps_mp) / (2 * eps_mp)
+    infinite = pref * (mp.quad(integrand_z, z_splits) + small_t_endpoint + large_t_tail)
+
+    def cutoff_value(tmax):
+        tmax = mp.mpf(str(tmax))
+        t0 = min(mp.mpf("1e-30"), tmax * mp.mpf("1e-20"))
+        splits = [t0, tmax * mp.mpf("1e-8"), tmax * mp.mpf("1e-6"), tmax * mp.mpf("1e-4"), tmax * mp.mpf("1e-2"), tmax * mp.mpf("0.1"), tmax * mp.mpf("0.3"), tmax * mp.mpf("0.6"), tmax]
+        if a1 < 0 and b1 > 0:
+            t_root = -a1 / b1
+            if t0 < t_root < tmax:
+                splits.extend([t_root * (1 - mp.mpf("1e-8")), t_root, t_root * (1 + mp.mpf("1e-8"))])
+        splits = sorted(set(splits))
+        endpoint = endpoint_scale * t0 ** (1 - eps_mp) / (1 - eps_mp)
+        return pref * (mp.quad(integrand_t, splits) + endpoint)
+
+    return infinite, cutoff_value
+
+
+def print_l_residue_prefactor(ingredients):
+    print_small_table(
+        ["prefactor_piece", "value"],
+        [
+            ["contour_sign", ingredients["contour_sign"]],
+            ["Gamma[eps]/(1-x)", f"{math.gamma(float(ingredients['eps'])) / (1.0 - float(ingredients['x'])):.16e}"],
+            ["1/(i*pi^(d/2))", fmt_complex(1.0 / (1j * math.pi ** (ingredients["d"] / 2.0)))],
+            ["1/2", "1/2"],
+            ["2*pi*i", fmt_complex(2.0 * math.pi * 1j)],
+            ["Omega[2-2 eps]/2", f"{ingredients['Omega_n'] / 2.0:.16e}"],
+            ["N_l(eps)", fmt_complex(ingredients["prefactor"])],
+        ],
+    )
+
+
+def run_method1_l_residue_direct_for_point(point_name, eps, eta, args):
+    point = get_point(point_name)
+    print()
+    print(f"######## Method-1 Direct l^- Residue Check: {point.name} ########")
+    print("Diagnostic only. Method12, Method3, and AMFlow defaults are unchanged.")
+    print("Reduced representation: integrate t = l_perp^2 after taking the D1 l^- residue.")
+    print("The code evaluates both contour_sign=+1 and contour_sign=-1.")
+    if point.p_plus != 1 or point.p_perp2 != 0:
+        print("This diagnostic currently implements pPlus=1 and pPerp2=0 only.")
+        return {"point_name": point_name, "skipped": True}
+
+    method12 = closed_form_value_branch(point, eps, branch="-i0")
+    print_small_table(
+        ["quantity", "value"],
+        [
+            ["eps", eps],
+            ["eta", eta],
+            ["Delta0", delta0_value(point)],
+            ["Delta1 current PDF", delta1_value(point)],
+            ["lambda", point.lam],
+            ["kappa", float(point.lam * (1 - point.lam))],
+            ["method12_closed current PDF", fmt_complex(method12)],
+        ],
+    )
+    full_ing = l_residue_ingredients(point, eps, eta, 1, short_C_diagnostic=False)
+    short_ing = l_residue_ingredients(point, eps, eta, 1, short_C_diagnostic=True)
+    lam_exact = point.lam
+    kappa_exact = lam_exact * (1 - lam_exact)
+    mu_k_exact = (1 - lam_exact) * point.mk2 + lam_exact * point.Mk2
+    extra_exact = -lam_exact * (1 - lam_exact * point.x) * point.p2
+    a1_short_exact = mu_k_exact - kappa_exact * (1 - point.x) * point.p2 + kappa_exact * (1 - point.x) / point.x * point.ml2
+    a1_full_exact = a1_short_exact + extra_exact
+    print()
+    print("== Current-PDF C(l) Off-Shell Term Diagnostic ==")
+    print_small_table(
+        ["quantity", "value"],
+        [
+            ["C_full_includes_extra_offshell_term", full_ing["C_full_includes_extra_offshell_term"]],
+            ["extra_offshell_term exact", extra_exact],
+            ["extra_offshell_term = -lambda*(1-lambda*x)*p2", f"{full_ing['extra_offshell_term']:.16e}"],
+            ["A1_full exact", a1_full_exact],
+            ["A1_full", f"{full_ing['A1_full']:.16e}"],
+            ["A1_short_without_extra_term exact", a1_short_exact],
+            ["A1_short_without_extra_term", f"{full_ing['A1_short_without_extra_term']:.16e}"],
+            ["A1_full - A1_short exact", a1_full_exact - a1_short_exact],
+            ["A1_full - A1_short_without_extra_term", f"{full_ing['A1_full'] - full_ing['A1_short_without_extra_term']:.16e}"],
+        ],
+    )
+
+    amflow_from_coeffs = None
+    if args.amflow in ("fresh", "reuse"):
+        print()
+        print("== AMFlow Coefficient Reuse For l-Residue Diagnostic ==")
+        ensure_amflow_order_for_powers(args, 0)
+        raw, normalized, _fields, _combos, output = run_amflow_coefficients(point_name, eps, args)
+        if normalized:
+            amflow_from_coeffs = evaluate_laurent(normalized, eps)
+            print(f"AMFlow_from_coeffs({eps}) = {fmt_complex(amflow_from_coeffs)}")
+        else:
+            print("AMFlow coefficients unavailable. Last AMFlow output follows:")
+            print(output[-3000:])
+
+    tmax_values = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+    results = {}
+    for sign in (1, -1):
+        ingredients = l_residue_ingredients(point, eps, eta, sign, short_C_diagnostic=False)
+        results[sign] = {"ingredients": ingredients}
+        print()
+        print(f"== Ingredients And Prefactor, contour_sign={sign} ==")
+        print_small_table(
+            ["ingredient", "value"],
+            [
+                ["lambda", f"{ingredients['lambda']:.16e}"],
+                ["kappa", f"{ingredients['kappa']:.16e}"],
+                ["mu_k(lambda)", f"{ingredients['mu_k_lambda']:.16e}"],
+                ["C_full_includes_extra_offshell_term", ingredients["C_full_includes_extra_offshell_term"]],
+                ["extra_offshell_term", f"{ingredients['extra_offshell_term']:.16e}"],
+                ["A1_full", f"{ingredients['A1_full']:.16e}"],
+                ["A1_short_without_extra_term", f"{ingredients['A1_short_without_extra_term']:.16e}"],
+                ["A1 used", f"{ingredients['A1']:.16e}"],
+                ["B1", f"{ingredients['B1']:.16e}"],
+                ["d", f"{ingredients['d']:.16e}"],
+                ["Omega[2-2 eps]", f"{ingredients['Omega_n']:.16e}"],
+            ],
+        )
+        print_l_residue_prefactor(ingredients)
+
+        infinite_mp, cutoff_mp = l_residue_integrals_mpmath(point, eps, eta, sign, dps=args.dps, short_C_diagnostic=False)
+        print(f"mpmath integration backend active with dps={args.dps}.")
+        infinite = complex(infinite_mp)
+        cutoff_function = lambda tmax: complex(cutoff_mp(tmax))
+        results[sign]["infinite"] = infinite
+        short_diagnostic = None
+        full_closed = None
+        short_closed = None
+        if sign == 1:
+            short_mp, _short_cutoff = l_residue_integrals_mpmath(point, eps, eta, sign, dps=args.dps, short_C_diagnostic=True)
+            short_diagnostic = complex(short_mp)
+            full_closed = method1_l_residue_closed_value(point, eps, eta, short_C_diagnostic=False)
+            short_closed = method1_l_residue_closed_value(point, eps, eta, short_C_diagnostic=True)
+
+        comparison_rows = [
+            ["l_residue_full_C_numeric infinite-map", fmt_complex(infinite)],
+            ["l_residue_full_C_numeric - Method12", fmt_complex(infinite - method12)],
+            ["l_residue_full_C_numeric / Method12", fmt_complex(ratio_or_none(infinite, method12))],
+        ]
+        if sign == 1:
+            comparison_rows.extend(
+                [
+                    ["l_residue_full_C_closed", fmt_complex(full_closed)],
+                    ["l_residue_full_C_closed - full_C_numeric", fmt_complex(full_closed - infinite)],
+                    ["l_residue_full_C_closed / full_C_numeric", fmt_complex(ratio_or_none(full_closed, infinite))],
+                    ["l_residue_short_C_diagnostic numeric", fmt_complex(short_diagnostic)],
+                    ["l_residue_short_C_diagnostic closed", fmt_complex(short_closed)],
+                ]
+            )
+        if amflow_from_coeffs is not None:
+            comparison_rows.extend(
+                [
+                    ["l_residue_full_C_numeric - AMFlow_from_coeffs", fmt_complex(infinite - amflow_from_coeffs)],
+                    ["l_residue_full_C_numeric / AMFlow_from_coeffs", fmt_complex(ratio_or_none(infinite, amflow_from_coeffs))],
+                    ["l_residue_short_C_diagnostic - AMFlow_from_coeffs", fmt_complex(None if short_diagnostic is None else short_diagnostic - amflow_from_coeffs)],
+                    ["l_residue_short_C_diagnostic / AMFlow_from_coeffs", fmt_complex(None if short_diagnostic is None else ratio_or_none(short_diagnostic, amflow_from_coeffs))],
+                ]
+            )
+        print()
+        print(f"== Infinite-Domain Result, contour_sign={sign} ==")
+        print_small_table(["quantity", "value"], comparison_rows)
+
+        cutoff_rows = []
+        for tmax in tmax_values:
+            value = cutoff_function(tmax)
+            cutoff_rows.append(
+                [
+                    str(tmax),
+                    fmt_complex(value),
+                    fmt_complex(value - method12),
+                    fmt_complex(ratio_or_none(value, method12)),
+                ]
+            )
+        print()
+        print(f"== Cutoff Scan, contour_sign={sign} ==")
+        print_small_table(
+            ["Tmax", "I_l_residue(Tmax)", "I_l_residue(Tmax) - Method12", "I_l_residue(Tmax)/Method12"],
+            cutoff_rows,
+        )
+
+    return {"point_name": point_name, "method12": method12, "results": results}
+
+
+def run_method1_l_residue_direct_mode(point_names, eps, eta, args):
+    output_dir = repo_root() / "amflow-project" / "targets" / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_name = (
+        "two_loop_residue_1d_numeric_all_points.txt"
+        if len(point_names) > 1
+        else f"two_loop_residue_1d_numeric_{point_names[0]}.txt"
+    )
+    report_path = output_dir / report_name
+    with report_path.open("w", encoding="utf-8") as report:
+        tee = Tee(sys.stdout, report)
+        with contextlib.redirect_stdout(tee):
+            print("Direct l-residue diagnostic example:")
+            print("  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --method1-l-residue-direct-check --eps 0.1 --amflow reuse")
+            results = [run_method1_l_residue_direct_for_point(point_name, eps, eta, args) for point_name in point_names]
+    print(f"Method1 l-residue direct report written to: {report_path}")
+    return results
+
+
+def mp_to_complex(value):
+    return complex(float(mp.re(value)), float(mp.im(value)))
+
+
+def method1_l_residue_closed_value(point, eps, eta, short_C_diagnostic=False):
+    mp.mp.dps = 80
+    return mp_to_complex(
+        kernel_method1_l_residue_closed(
+            point,
+            mp.mpf(str(float(eps))),
+            eta=mp.mpf(str(float(eta))),
+            short_C_diagnostic=short_C_diagnostic,
+        )
+    )
+
+
+def method1_l_residue_closed_coefficients(point, min_power=-2, max_power=2, short_C_diagnostic=False):
+    mp.mp.dps = 100
+    degree = max_power + 10
+    if min_power < -2:
+        raise ValueError("l-residue closed coefficients are implemented from c[-2] upward.")
+    poly_powers = list(range(0, degree + 1))
+    eps_nodes = [
+        mp.mpf(1) / n
+        for n in (30, 35, 42, 50, 60, 72, 86, 103, 124, 150, 180, 220, 270, 330, 410, 520, 660, 850, 1100, 1450, 1900, 2500)
+    ][: degree + 6]
+    matrix = mp.matrix([[eps ** power for power in poly_powers] for eps in eps_nodes])
+    vector = mp.matrix([
+        eps**2 * kernel_method1_l_residue_closed(
+            point,
+            eps,
+            eta=mp.mpf("1e-40"),
+            short_C_diagnostic=short_C_diagnostic,
+        )
+        for eps in eps_nodes
+    ])
+    if len(eps_nodes) == len(poly_powers):
+        solved = mp.lu_solve(matrix, vector)
+    else:
+        solved = mp.lu_solve(matrix.T * matrix, matrix.T * vector)
+    return {power: mp_to_complex(solved[power + 2]) for power in range(min_power, max_power + 1)}
+
+
+def print_l_residue_closed_ingredients(point, eta, short_C_diagnostic=False):
+    ingredients = kernel_l_residue_closed_ingredients(point, short_C_diagnostic=short_C_diagnostic)
+    rows = [
+        ["X", mp.nstr(ingredients["X"], 30)],
+        ["lambda", mp.nstr(ingredients["lambda"], 30)],
+        ["kappa", mp.nstr(ingredients["kappa"], 30)],
+        ["Delta0", mp.nstr(ingredients["Delta0"], 30)],
+        ["C_full_includes_extra_offshell_term", ingredients["C_full_includes_extra_offshell_term"]],
+        ["extra_offshell_term", mp.nstr(ingredients["extra_offshell_term"], 30)],
+        ["A1_full", mp.nstr(ingredients["A1_full"], 30)],
+        ["A1_short_without_extra_term", mp.nstr(ingredients["A1_short_without_extra_term"], 30)],
+        ["A1_full - A1_short_without_extra_term", mp.nstr(ingredients["A1_full"] - ingredients["A1_short_without_extra_term"], 30)],
+        ["A1 used", mp.nstr(ingredients["A1"], 30)],
+        ["B1", mp.nstr(ingredients["B1"], 30)],
+        ["z = 1 - B1*Delta0/A1", mp.nstr(ingredients["z"], 30)],
+        ["eta", eta],
+        ["branch convention", "-i0 in (Delta0-i eta)(A1-i eta)"],
+    ]
+    print_small_table(["ingredient", "value"], rows)
+
+
+def score_coefficients(lhs, rhs, powers):
+    total = 0.0
+    for power in powers:
+        if power in lhs and power in rhs:
+            total += abs(lhs[power] - rhs[power]) ** 2
+    return math.sqrt(total)
+
+
+def print_l_residue_closed_coefficient_table(point, lres_coeffs, method12_coeffs, amflow_coeffs, min_power, max_power, label="l_residue_full_C_closed"):
+    print()
+    print(f"== {label} Laurent Coefficients ==")
+    expected_leading = 1.0 / (2.0 * float(1 - point.x))
+    leading = lres_coeffs.get(-2)
+    leading_ok = leading is not None and abs(leading - expected_leading) < 1e-7
+    print(f"Expected c[-2] = 1/(2*(1-x)) = {expected_leading:.12e}: {'PASS' if leading_ok else 'FAIL'}")
+    rows = []
+    for power in range(min_power, max_power + 1):
+        amf = amflow_coeffs.get(power) if amflow_coeffs else None
+        lres = lres_coeffs.get(power)
+        m12 = method12_coeffs.get(power)
+        rows.append(
+            [
+                f"c[{power}]",
+                fmt_complex(amf),
+                fmt_complex(m12),
+                fmt_complex(lres),
+                fmt_complex(None if amf is None or lres is None else lres - amf),
+                fmt_complex(None if amf is None or lres is None else ratio_or_none(lres, amf)),
+                fmt_complex(None if amf is None or m12 is None else m12 - amf),
+                fmt_complex(None if amf is None or m12 is None else ratio_or_none(m12, amf)),
+            ]
+        )
+    print_small_table(
+        [
+            "coefficient",
+            "AMFlow_normalized",
+            "Method12_current_pdf",
+            label,
+            f"{label} - AMFlow",
+            f"{label} / AMFlow",
+            "Method12 - AMFlow",
+            "Method12 / AMFlow",
+        ],
+        rows,
+    )
+
+
+def run_method1_l_residue_closed_for_point(point_name, eps, eta, args):
+    point = get_point(point_name)
+    min_power = args.fit_min_power
+    max_power = args.fit_max_power
+    print()
+    print(f"######## Method-1 l-Residue Closed Candidate Check: {point.name} ########")
+    print("This is a diagnostic candidate expression. Method12 defaults are unchanged.")
+    if point.p_plus != 1 or point.p_perp2 != 0:
+        print("l-residue closed form currently implemented for pPlus=1, pPerp2=0.")
+        return {"point_name": point_name, "skipped": True}
+
+    print()
+    print("== l-Residue Closed Ingredients: full current-PDF C(l) ==")
+    print_l_residue_closed_ingredients(point, eta, short_C_diagnostic=False)
+    print()
+    print("== l-Residue Closed Ingredients: short-C diagnostic only ==")
+    print_l_residue_closed_ingredients(point, eta, short_C_diagnostic=True)
+
+    method12_value = closed_form_value_branch(point, eps, branch="-i0")
+    lres_value = method1_l_residue_closed_value(point, eps, eta, short_C_diagnostic=False)
+    lres_short_value = method1_l_residue_closed_value(point, eps, eta, short_C_diagnostic=True)
+    method12_coeffs = method12_laurent_coefficients(point, min_power, max_power, branch="-i0")
+    lres_coeffs = method1_l_residue_closed_coefficients(point, min_power, max_power, short_C_diagnostic=False)
+    lres_short_coeffs = method1_l_residue_closed_coefficients(point, min_power, max_power, short_C_diagnostic=True)
+
+    amflow_coeffs = {}
+    amflow_from_coeffs = None
+    if args.amflow in ("fresh", "reuse", "imported"):
+        print()
+        print("== AMFlow Coefficients For l-Residue Closed Candidate ==")
+        ensure_amflow_order_for_powers(args, max_power)
+        _raw, amflow_coeffs, _fields, _combos, output = run_amflow_coefficients(point_name, eps, args)
+        if amflow_coeffs:
+            amflow_from_coeffs = evaluate_laurent(amflow_coeffs, eps)
+            print(f"AMFlow_from_coeffs({eps}) = {fmt_complex(amflow_from_coeffs)}")
+        else:
+            print("AMFlow coefficients unavailable. Last AMFlow output follows:")
+            print(output[-3000:])
+
+    numeric_value = None
+    numeric_short_value = None
+    if args.method1_l_residue_direct_check:
+        print()
+        print("== Numerical Direct l-Residue Cross-Check, contour_sign=+1 ==")
+        infinite_mp, _cutoff_mp = l_residue_integrals_mpmath(point, eps, eta, 1, dps=args.dps, short_C_diagnostic=False)
+        infinite_short_mp, _cutoff_short_mp = l_residue_integrals_mpmath(point, eps, eta, 1, dps=args.dps, short_C_diagnostic=True)
+        numeric_value = complex(infinite_mp)
+        numeric_short_value = complex(infinite_short_mp)
+        print(f"l_residue_full_C_numeric infinite-map = {fmt_complex(numeric_value)}")
+        print(f"l_residue_short_C_diagnostic numeric infinite-map = {fmt_complex(numeric_short_value)}")
+
+    comparison_rows = [
+        ["eps", eps],
+        ["Method12_closed current PDF", fmt_complex(method12_value)],
+        ["l_residue_full_C_closed", fmt_complex(lres_value)],
+        ["l_residue_full_C_closed - Method12", fmt_complex(lres_value - method12_value)],
+        ["l_residue_full_C_closed / Method12", fmt_complex(ratio_or_none(lres_value, method12_value))],
+        ["l_residue_full_C_numeric", fmt_complex(numeric_value)],
+        ["l_residue_full_C_closed - numeric", fmt_complex(None if numeric_value is None else lres_value - numeric_value)],
+        ["l_residue_full_C_closed / numeric", fmt_complex(None if numeric_value is None else ratio_or_none(lres_value, numeric_value))],
+        ["l_residue_short_C_diagnostic closed", fmt_complex(lres_short_value)],
+        ["l_residue_short_C_diagnostic numeric", fmt_complex(numeric_short_value)],
+        ["AMFlow_from_coeffs", fmt_complex(amflow_from_coeffs)],
+        ["l_residue_full_C_closed - AMFlow", fmt_complex(None if amflow_from_coeffs is None else lres_value - amflow_from_coeffs)],
+        ["l_residue_full_C_closed / AMFlow", fmt_complex(None if amflow_from_coeffs is None else ratio_or_none(lres_value, amflow_from_coeffs))],
+        ["l_residue_short_C_diagnostic - AMFlow", fmt_complex(None if amflow_from_coeffs is None else lres_short_value - amflow_from_coeffs)],
+        ["l_residue_short_C_diagnostic / AMFlow", fmt_complex(None if amflow_from_coeffs is None else ratio_or_none(lres_short_value, amflow_from_coeffs))],
+    ]
+    print()
+    print("== Fixed-epsilon Comparison ==")
+    print_small_table(["quantity", "value"], comparison_rows)
+    print_l_residue_closed_coefficient_table(point, lres_coeffs, method12_coeffs, amflow_coeffs, min_power, max_power, label="l_residue_full_C_closed")
+    print()
+    print("== Short-C Diagnostic Laurent Coefficients ==")
+    print_l_residue_closed_coefficient_table(point, lres_short_coeffs, method12_coeffs, amflow_coeffs, min_power, max_power, label="l_residue_short_C_diagnostic")
+
+    powers = list(range(min_power, max_power + 1))
+    lres_score = None if not amflow_coeffs else score_coefficients(lres_coeffs, amflow_coeffs, powers)
+    method12_score = None if not amflow_coeffs else score_coefficients(method12_coeffs, amflow_coeffs, powers)
+    return {
+        "point_name": point_name,
+        "Delta0": kernel_l_residue_delta0(point),
+        "A1": kernel_l_residue_A1(point),
+        "B1": kernel_l_residue_B1(point),
+        "z": kernel_l_residue_z(point),
+        "method12_coeffs": method12_coeffs,
+        "lres_coeffs": lres_coeffs,
+        "lres_short_coeffs": lres_short_coeffs,
+        "amflow_coeffs": amflow_coeffs,
+        "lres_score": lres_score,
+        "method12_score": method12_score,
+    }
+
+
+def run_method1_l_residue_closed_mode(point_names, eps, eta, args):
+    output_dir = repo_root() / "amflow-project" / "targets" / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_name = (
+        "two_loop_l_residue_closed_all_points.txt"
+        if len(point_names) > 1
+        else f"two_loop_l_residue_closed_{point_names[0]}.txt"
+    )
+    report_path = output_dir / report_name
+    with report_path.open("w", encoding="utf-8") as report:
+        tee = Tee(sys.stdout, report)
+        with contextlib.redirect_stdout(tee):
+            print("This is a diagnostic candidate expression. Method12 defaults are unchanged.")
+            print("Closed l-residue candidate example:")
+            print("  ./run.sh two-loop-method3-mc-compare --point equal_mass_offshell_positive --method1-l-residue-closed-check --eps 0.1 --amflow imported")
+            results = [run_method1_l_residue_closed_for_point(point_name, eps, eta, args) for point_name in point_names]
+            if len(results) > 1:
+                print()
+                print("== All-Point Summary ==")
+                rows = []
+                for result in results:
+                    if result.get("skipped"):
+                        continue
+                    point = get_point(result["point_name"])
+                    amf = result["amflow_coeffs"]
+                    lres = result["lres_coeffs"]
+                    m12 = result["method12_coeffs"]
+                    best = "not available"
+                    if result["lres_score"] is not None and result["method12_score"] is not None:
+                        best = "l-residue" if result["lres_score"] <= result["method12_score"] else "Method12"
+                    rows.append(
+                        [
+                            result["point_name"],
+                            point.in_support(),
+                            mp.nstr(result["Delta0"], 12),
+                            mp.nstr(result["A1"], 12),
+                            mp.nstr(result["z"], 12),
+                            fmt_complex(amf.get(-2)),
+                            fmt_complex(amf.get(-1)),
+                            fmt_complex(amf.get(0)),
+                            fmt_complex(lres.get(-2)),
+                            fmt_complex(lres.get(-1)),
+                            fmt_complex(lres.get(0)),
+                            fmt_complex(m12.get(-2)),
+                            fmt_complex(m12.get(-1)),
+                            fmt_complex(m12.get(0)),
+                            fmt_float(result["lres_score"]),
+                            fmt_float(result["method12_score"]),
+                            best,
+                        ]
+                    )
+                print_small_table(
+                    [
+                        "point",
+                        "support ok",
+                        "Delta0",
+                        "A1",
+                        "z",
+                        "AMF c[-2]",
+                        "AMF c[-1]",
+                        "AMF c[0]",
+                        "lres c[-2]",
+                        "lres c[-1]",
+                        "lres c[0]",
+                        "M12 c[-2]",
+                        "M12 c[-1]",
+                        "M12 c[0]",
+                        "score lres",
+                        "score M12",
+                        "best match",
+                    ],
+                    rows,
+                )
+    print(f"l-residue closed report written to: {report_path}")
+    return results
+
+
+def coefficient_score_against_amflow(candidate, amflow):
+    powers = sorted(set(candidate) & set(amflow))
+    if not powers:
+        return None
+    return math.sqrt(sum(abs(candidate[power] - amflow[power]) ** 2 for power in powers))
+
+
+def compact_coeff_row(power, residue_coeffs, product_coeffs, amflow_coeffs):
+    amf = amflow_coeffs.get(power)
+    residue = residue_coeffs.get(power)
+    product = product_coeffs.get(power)
+    return [
+        f"c[{power}]",
+        fmt_complex(amf),
+        fmt_complex(residue),
+        fmt_complex(product),
+        fmt_complex(None if amf is None else residue - amf),
+        fmt_complex(None if amf is None else product - amf),
+        fmt_complex(None if amf is None else ratio_or_none(residue, amf)),
+        fmt_complex(None if amf is None else ratio_or_none(product, amf)),
+    ]
+
+
+def compare_closed_form_for_point(point_name, eps, eta, args):
+    point = get_point(point_name)
+    min_power = args.fit_min_power
+    max_power = args.fit_max_power
+    print()
+    print(f"######## Closed-Form Validation: {point.name} ########")
+    print("Objects: residue_closed_form, product_closed_form, AMFlow.")
+    print("Historical diagnostics are suppressed here; use --diagnose-product-form for product-form convention variants.")
+    if point.p_plus != 1 or point.p_perp2 != 0:
+        print("residue_closed_form currently supports P=pPlus=1 and pPerp2=0 only.")
+        return {"point_name": point_name, "skipped": True}
+
+    ingredients = closed_form_residue_ingredients(point)
+    short_ingredients = closed_form_residue_ingredients(point, short_C_diagnostic=True)
+    product_coeffs = product_laurent_coefficients(point, max_order=max_power, min_power=min_power, eta=eta)
+    residue_coeffs = residue_laurent_coefficients(point, max_order=max_power, min_power=min_power, eta=Fraction(1, 10**40))
+    product_value = product_closed_form(point, eps, eta=eta)
+    residue_value = residue_closed_form(point, eps, eta=eta)
+
+    amflow_coeffs = {}
+    amflow_from_coeffs = None
+    if args.amflow in ("fresh", "reuse", "imported"):
+        ensure_amflow_order_for_powers(args, max_power)
+        _raw, amflow_coeffs, _fields, _combos, output = run_amflow_coefficients(point_name, eps, args)
+        if amflow_coeffs:
+            amflow_from_coeffs = evaluate_laurent(amflow_coeffs, eps)
+        else:
+            print("AMFlow coefficients unavailable. Last AMFlow output follows:")
+            print(output[-3000:])
+
+    P = point.p_plus
+    X = point.p_plus - point.x
+    rows = [
+        ["point", point.name],
+        ["support", point.in_support()],
+        ["P = pPlus", P],
+        ["pMinus", point.p_minus],
+        ["p2", point.p2],
+        ["pPerp2", point.p_perp2],
+        ["x", point.x],
+        ["y", point.y],
+        ["X = P - x", X],
+        ["lambda = y/X", point.lam],
+        ["kappa", point.lam * (1 - point.lam)],
+        ["ml2", point.ml2],
+        ["Ml2", point.Ml2],
+        ["mk2", point.mk2],
+        ["Mk2", point.Mk2],
+        ["branch convention", "-i0 in Delta0, A1, and the hypergeometric branch argument"],
+    ]
+    print()
+    print("== Point And Branch ==")
+    print_small_table(["quantity", "value"], rows)
+
+    print()
+    print("== Residue Ingredients ==")
+    print_small_table(
+        ["ingredient", "value"],
+        [
+            ["Delta0", mp.nstr(ingredients["Delta0"], 30)],
+            ["A1 full current-PDF", mp.nstr(ingredients["A1"], 30)],
+            ["B1", mp.nstr(ingredients["B1"], 30)],
+            ["z", mp.nstr(ingredients["z"], 30)],
+            ["extra_offshell_term", mp.nstr(ingredients["extra_offshell_term"], 30)],
+            ["A1_short_diagnostic", mp.nstr(short_ingredients["A1"], 30)],
+            ["z_short_diagnostic", mp.nstr(short_ingredients["z"], 30)],
+        ],
+    )
+
+    print()
+    print("== Fixed-eps Values From Closed Forms ==")
+    print_small_table(
+        ["quantity", "value"],
+        [
+            ["eps", eps],
+            ["residue_closed_form", fmt_complex(residue_value)],
+            ["product_closed_form", fmt_complex(product_value)],
+            ["AMFlow_from_coeffs", fmt_complex(amflow_from_coeffs)],
+            ["residue_closed_form - AMFlow", fmt_complex(None if amflow_from_coeffs is None else residue_value - amflow_from_coeffs)],
+            ["product_closed_form - AMFlow", fmt_complex(None if amflow_from_coeffs is None else product_value - amflow_from_coeffs)],
+        ],
+    )
+
+    print()
+    print("== Laurent Coefficient Comparison ==")
+    print_small_table(
+        [
+            "coefficient",
+            "AMFlow",
+            "residue_closed_form",
+            "product_closed_form",
+            "residue-AMFlow",
+            "product-AMFlow",
+            "residue/AMFlow",
+            "product/AMFlow",
+        ],
+        [compact_coeff_row(power, residue_coeffs, product_coeffs, amflow_coeffs) for power in range(min_power, max_power + 1)],
+    )
+
+    residue_score = coefficient_score_against_amflow(residue_coeffs, amflow_coeffs)
+    product_score = coefficient_score_against_amflow(product_coeffs, amflow_coeffs)
+    best_match = "not available"
+    if residue_score is not None and product_score is not None:
+        best_match = "residue_closed_form" if residue_score <= product_score else "product_closed_form"
+    print()
+    print("== Scores ==")
+    print_small_table(
+        ["quantity", "value"],
+        [
+            ["score residue_closed_form vs AMFlow", fmt_float(residue_score)],
+            ["score product_closed_form vs AMFlow", fmt_float(product_score)],
+            ["best match", best_match],
+        ],
+    )
+    return {
+        "point_name": point.name,
+        "residue_coeffs": residue_coeffs,
+        "product_coeffs": product_coeffs,
+        "amflow_coeffs": amflow_coeffs,
+        "residue_score": residue_score,
+        "product_score": product_score,
+        "best_match": best_match,
+    }
+
+
+def run_compare_closed_form_mode(point_names, eps, eta, args):
+    output_dir = repo_root() / "amflow-project" / "targets" / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_name = (
+        "two_loop_residue_closed_compare_all_points.txt"
+        if len(point_names) > 1
+        else f"two_loop_residue_closed_compare_{point_names[0]}.txt"
+    )
+    report_path = output_dir / report_name
+    with report_path.open("w", encoding="utf-8") as report:
+        tee = Tee(sys.stdout, report)
+        with contextlib.redirect_stdout(tee):
+            print("Closed-form validation report.")
+            print("Main objects: residue_closed_form, product_closed_form, AMFlow.")
+            results = [compare_closed_form_for_point(point_name, eps, eta, args) for point_name in point_names]
+            if len(results) > 1:
+                print()
+                print("== Compact All-Point Summary ==")
+                print_small_table(
+                    ["point", "score residue", "score product", "best match"],
+                    [
+                        [
+                            result["point_name"],
+                            fmt_float(result.get("residue_score")),
+                            fmt_float(result.get("product_score")),
+                            result.get("best_match", "not available"),
+                        ]
+                        for result in results
+                        if not result.get("skipped")
+                    ],
+                )
+    print(f"Closed-form validation report written to: {report_path}")
     return results
 
 
@@ -2666,16 +3862,19 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
     amflow_raw_coeffs = {}
     amflow_normalized_coeffs = {}
     amflow_object_fields = {}
-    if args.amflow in ("fresh", "reuse"):
+    amflow_combo_coeffs = {}
+    if args.amflow in ("fresh", "reuse", "imported"):
         print()
         print("== Extracting AMFlow Laurent Coefficients ==")
         ensure_amflow_order_for_powers(args, max_power)
-        if args.amflow == "reuse":
+        if args.amflow == "imported":
+            print("Loading imported AMFlow coefficient log/result for this point.")
+        elif args.amflow == "reuse":
             print("Reusing cached AMFlow double-discontinuity expression and extracting coefficients.")
         else:
             print("Running one AMFlow solve for this point, then extracting coefficients from the resulting epsilon expression.")
         print("No AMFlow finite-epsilon scan is run in coefficient mode.")
-        amflow_raw_coeffs, amflow_normalized_coeffs, amflow_object_fields, output = run_amflow_coefficients(
+        amflow_raw_coeffs, amflow_normalized_coeffs, amflow_object_fields, amflow_combo_coeffs, output = run_amflow_coefficients(
             point_name,
             eps_values[0],
             args,
@@ -2707,6 +3906,7 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
                 eps_values,
                 method12_values,
             )
+            print_amflow_sign_pattern_diagnostics(amflow_combo_coeffs, min_power, max_power)
             if args.diagnose_method12_conventions:
                 print_method12_convention_diagnostic(
                     point,
@@ -2719,7 +3919,7 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
     elif args.diagnose_method12_conventions:
         print()
         print("== Method12 Convention Diagnostic Skipped ==")
-        print("Run with --amflow fresh or --amflow reuse so AMFlow Laurent coefficients are available.")
+        print("Run with --amflow fresh, --amflow reuse, or --amflow imported so AMFlow Laurent coefficients are available.")
 
     print()
     print("== Final Coefficient Comparison ==")
@@ -2770,6 +3970,7 @@ def compare_coefficients_for_point(point_name, eps_values, eta, args):
         "method3_fit": method3_fit,
         "AMFlow_raw": amflow_raw_coeffs,
         "AMFlow_normalized": amflow_normalized_coeffs,
+        "AMFlow_sign_pattern_diagnostics": amflow_combo_coeffs,
         "AMFlow_fit": amflow_fit,
     }
 
@@ -2795,6 +3996,21 @@ def run_coefficient_mode(point_names, eps_values, eta, args):
 
 def main():
     args = parse_args()
+    used_args = set(sys.argv[1:])
+    if "--method1-l-residue-closed-check" in used_args:
+        print("Deprecated alias: --method1-l-residue-closed-check -> --compare-closed-form")
+    if "--method1-l-residue-direct-check" in used_args:
+        print("Deprecated alias: --method1-l-residue-direct-check -> --residue-1d-check")
+    if "--method3-integrand-eps-expansion" in used_args:
+        print("Deprecated alias: --method3-integrand-eps-expansion -> --transverse-integrand-expansion-check")
+    if "--diagnose-method12-conventions" in used_args:
+        print("Deprecated alias: --diagnose-method12-conventions -> --diagnose-product-form")
+
+    if args.show_amflow_import_help:
+        print_amflow_import_help()
+        return
+
+    process_amflow_import_args(args)
 
     if args.compare_coefficients:
         eps_values = parse_eps_list(args.eps_list)
@@ -2803,7 +4019,15 @@ def main():
     else:
         eps_values = [parse_mpf(args.eps)]
 
-    point_names = sorted(POINTS) if args.all_points else [args.point]
+    if args.points is not None:
+        point_names = [name.strip() for name in args.points.split(",") if name.strip()]
+        unknown = [name for name in point_names if name not in POINTS]
+        if unknown:
+            raise SystemExit(f"Unknown point(s): {', '.join(unknown)}. Known points: {', '.join(sorted(POINTS))}")
+    elif args.all_points:
+        point_names = sorted(POINTS)
+    else:
+        point_names = [args.point]
     eta = parse_mpf(args.eta)
 
     if args.method3_coeff_cutoff_log:
@@ -2812,6 +4036,17 @@ def main():
 
     if args.method3_integrand_eps_expansion:
         run_method3_integrand_expansion_mode(point_names, eta, args)
+        return
+
+    if args.compare_closed_form:
+        if args.method1_l_residue_direct_check:
+            require_mpmath_for_l_residue()
+        run_compare_closed_form_mode(point_names, parse_mpf(args.eps), eta, args)
+        return
+
+    if args.method1_l_residue_direct_check:
+        require_mpmath_for_l_residue()
+        run_method1_l_residue_direct_mode(point_names, parse_mpf(args.eps), eta, args)
         return
 
     if args.compare_coefficients:

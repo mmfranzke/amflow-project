@@ -94,6 +94,30 @@ POINTS = {
         mk2=Fraction(1),
         Mk2=Fraction(1),
     ),
+    "four_mass_offshell_positive_A": TwoLoopPoint(
+        name="four_mass_offshell_positive_A",
+        p_plus=Fraction(1),
+        p_minus=Fraction(5),
+        p_perp2=Fraction(0),
+        x=Fraction(1, 5),
+        y=Fraction(3, 10),
+        ml2=Fraction(49, 100),
+        Ml2=Fraction(4),
+        mk2=Fraction(1, 4),
+        Mk2=Fraction(81, 100),
+    ),
+    "four_mass_onshell_nonsymmetric_A": TwoLoopPoint(
+        name="four_mass_onshell_nonsymmetric_A",
+        p_plus=Fraction(1),
+        p_minus=Fraction(0),
+        p_perp2=Fraction(0),
+        x=Fraction(1, 5),
+        y=Fraction(3, 10),
+        ml2=Fraction(49, 100),
+        Ml2=Fraction(4),
+        mk2=Fraction(1, 4),
+        Mk2=Fraction(81, 100),
+    ),
 }
 
 

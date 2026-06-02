@@ -446,3 +446,13 @@ def method3_normalized(point, eps, eta, n_samples, rho=None, scrambles=4, seed=1
     )
     pref = complex(method3_prefactor(point, eps, lc_jacobian=lc_jacobian))
     return pref * stripped, abs(pref) * error, stripped
+
+
+def full_transverse_mc_fixed_eps(*args, **kwargs):
+    """User-facing wrapper for the former Method-3 fixed-eps transverse MC."""
+    return method3_normalized(*args, **kwargs)
+
+
+def transverse_integrand_expansion(*args, **kwargs):
+    """User-facing wrapper for the finite-cutoff transverse integrand expansion diagnostic."""
+    return method3_cutoff_integrand_expansion_coefficients(*args, **kwargs)

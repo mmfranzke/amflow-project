@@ -76,6 +76,32 @@ TwoLoopKinematicPoints[] := <|
     "Ml2" -> 1,
     "mk2" -> 1,
     "Mk2" -> 1
+  |>,
+  "four_mass_offshell_positive_A" -> <|
+    "name" -> "four_mass_offshell_positive_A",
+    "pPlus" -> 1,
+    "pMinus" -> 5,
+    "pPerp2" -> 0,
+    "p2" -> 5,
+    "x" -> 1/5,
+    "y" -> 3/10,
+    "ml2" -> 49/100,
+    "Ml2" -> 4,
+    "mk2" -> 1/4,
+    "Mk2" -> 81/100
+  |>,
+  "four_mass_onshell_nonsymmetric_A" -> <|
+    "name" -> "four_mass_onshell_nonsymmetric_A",
+    "pPlus" -> 1,
+    "pMinus" -> 0,
+    "pPerp2" -> 0,
+    "p2" -> 0,
+    "x" -> 1/5,
+    "y" -> 3/10,
+    "ml2" -> 49/100,
+    "Ml2" -> 4,
+    "mk2" -> 1/4,
+    "Mk2" -> 81/100
   |>
 |>;
 
