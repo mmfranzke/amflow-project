@@ -10,6 +10,8 @@ import sys
 import shutil
 import json
 import glob
+import time
+import socket
 from datetime import datetime, timezone
 from pathlib import Path
 from fractions import Fraction
@@ -239,6 +241,7 @@ def parse_args():
     parser.add_argument("--amflow-eps-order", default="4")
     parser.add_argument("--amflow-sanity-check", action="store_true")
     parser.add_argument("--amflow-fresh-dry-run", action="store_true")
+    parser.add_argument("--amflow-fresh-lock-timeout", type=int, default=0, help="Seconds to wait for the shared fresh-AMFlow cache lock.")
     parser.add_argument("--amflow-parser-debug", action="store_true")
     parser.add_argument("--allow-high-order-amflow", action="store_true")
     parser.add_argument("--run-amflow-benchmark", action="store_true")
@@ -793,6 +796,86 @@ def amflow_cache_candidates(point_name):
     return unique
 
 
+def amflow_fresh_lock_path():
+    cache_dir = repo_root() / "amflow-project" / "targets" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / ".amflow_fresh.lock"
+
+
+class AMFlowFreshLock:
+    def __init__(self, args):
+        self.args = args
+        self.path = amflow_fresh_lock_path()
+        self.acquired = False
+
+    def __enter__(self):
+        if self.args.amflow != "fresh" or self.args.amflow_fresh_dry_run:
+            return self
+        deadline = time.time() + max(0, int(self.args.amflow_fresh_lock_timeout))
+        payload = (
+            f"pid={os.getpid()}\n"
+            f"host={socket.gethostname()}\n"
+            f"timestamp={datetime.now(timezone.utc).isoformat()}\n"
+            f"argv={' '.join(sys.argv)}\n"
+        )
+        while True:
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(payload)
+                self.acquired = True
+                print(f"AMFLOW_FRESH_LOCK acquired: {self.path}")
+                return self
+            except FileExistsError:
+                details = self.path.read_text(encoding="utf-8", errors="replace") if self.path.exists() else "<unreadable>"
+                if time.time() >= deadline:
+                    raise SystemExit(
+                        "Another --amflow fresh job appears to be running and using the shared AMFlow cache.\n"
+                        f"Lock file: {self.path}\n"
+                        f"Lock contents:\n{details}\n"
+                        "Run fresh AMFlow jobs one at a time, or pass --amflow-fresh-lock-timeout SECONDS to wait.\n"
+                        "If the previous job was killed and you are sure no fresh AMFlow job is running, remove the lock file manually."
+                    )
+                print(f"AMFLOW_FRESH_LOCK waiting for {self.path}")
+                time.sleep(10)
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.acquired:
+            try:
+                self.path.unlink()
+                print(f"AMFLOW_FRESH_LOCK released: {self.path}")
+            except FileNotFoundError:
+                pass
+        return False
+
+
+def delete_or_quarantine_cache_path(path):
+    try:
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        return str(path)
+    except FileNotFoundError:
+        return str(path)
+    except OSError as exc:
+        quarantine = path.with_name(f"{path.name}.delete_failed_{os.getpid()}_{int(time.time())}")
+        print(f"WARNING: failed to delete cache path due to {exc!r}: {path}")
+        try:
+            path.rename(quarantine)
+            print(f"AMFLOW_FRESH_CACHE_CLEAN quarantined: {path} -> {quarantine}")
+            return f"{path} -> {quarantine}"
+        except OSError as rename_exc:
+            raise SystemExit(
+                "ERROR: could not delete or quarantine an AMFlow cache path.\n"
+                f"path={path}\n"
+                f"delete_error={exc!r}\n"
+                f"rename_error={rename_exc!r}\n"
+                "This is often an NFS stale-handle/race issue from concurrent fresh AMFlow jobs. "
+                "Wait a moment, ensure no other fresh job is running, then retry."
+            ) from rename_exc
+
+
 def clean_amflow_caches(point_name, dry_run=False):
     paths = amflow_cache_candidates(point_name)
     label = "would delete" if dry_run else "deleted"
@@ -805,10 +888,7 @@ def clean_amflow_caches(point_name, dry_run=False):
         cleaned.append(str(path))
         if dry_run:
             continue
-        if path.is_dir():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
+        cleaned[-1] = delete_or_quarantine_cache_path(path)
     return cleaned
 
 
@@ -858,7 +938,11 @@ def run_amflow_coefficients(point_name, eps, args):
     if args.amflow == "imported":
         return load_imported_amflow_coefficients(point_name, args)
     check_high_order_amflow_allowed(point_name, args)
+    with AMFlowFreshLock(args):
+        return run_amflow_coefficients_unlocked(point_name, eps, args)
 
+
+def run_amflow_coefficients_unlocked(point_name, eps, args):
     repo = repo_root()
     run_sh = repo / "amflow-project" / "run.sh"
     log_dir = repo / "amflow-project" / "logs"
