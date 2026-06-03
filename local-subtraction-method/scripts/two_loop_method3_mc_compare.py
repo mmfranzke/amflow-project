@@ -893,14 +893,19 @@ def run_amflow_coefficients(point_name, eps, args):
     log_path.write_text(proc.stdout, encoding="utf-8")
     print(f"AMFlow coefficient log written to: {log_path}")
     print_amflow_fingerprint(point_name, args, cleaned_paths=cleaned_paths, log_path=log_path)
-    if proc.returncode != 0:
-        return {}, {}, {}, {}, proc.stdout
 
     raw, normalized = parse_amflow_coefficients(proc.stdout)
     object_fields = parse_amflow_object_lines(proc.stdout)
     combo_coeffs = parse_amflow_combo_coefficients(proc.stdout)
     if args.amflow_parser_debug:
         print_amflow_parser_debug(str(log_path), proc.stdout, raw, normalized, object_fields)
+    if proc.returncode != 0:
+        print(f"ERROR: AMFlow subprocess failed with exit code {proc.returncode}.")
+        print("Do not interpret this AMFlow result.")
+        return raw, normalized, object_fields, combo_coeffs, proc.stdout
+    if not normalized:
+        print("ERROR: AMFlow finished but no normalized coefficients were parsed.")
+        print("Do not interpret this AMFlow result.")
     if args.amflow_sanity_check:
         amflow_sanity_check(point_name, normalized, args)
     return raw, normalized, object_fields, combo_coeffs, proc.stdout
@@ -1024,10 +1029,17 @@ def print_amflow_parser_debug(source_label, text, raw, normalized, fields):
         if "AMFLOW_COEFF_POWER=" in line or line.strip().startswith("| c["):
             print(f"  {line}")
     print("parsed powers:", sorted(set(raw) | set(normalized)))
-    print_small_table(
-        ["coefficient", "raw", "normalized"],
-        [[f"c[{power}]", fmt_complex(raw.get(power)), fmt_complex(normalized.get(power))] for power in sorted(set(raw) | set(normalized))],
-    )
+    powers = sorted(set(raw) | set(normalized))
+    if powers:
+        print_small_table(
+            ["coefficient", "raw", "normalized"],
+            [[f"c[{power}]", fmt_complex(raw.get(power)), fmt_complex(normalized.get(power))] for power in powers],
+        )
+    else:
+        print("  no AMFlow coefficients parsed")
+        tail = "\n".join(text.splitlines()[-80:])
+        print("AMFlow log tail:")
+        print(tail if tail else "  <empty>")
 
 
 def fmt_complex(z):
@@ -1119,7 +1131,7 @@ def print_cells(cells, widths):
 
 def print_small_table(headers, rows):
     widths = [
-        max(len(str(header)), *(len(str(row[i])) for row in rows))
+        max([len(str(header))] + [len(str(row[i])) for row in rows])
         for i, header in enumerate(headers)
     ]
     print_rule(widths)
