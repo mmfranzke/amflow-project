@@ -8,6 +8,9 @@ import subprocess
 import math
 import sys
 import shutil
+import json
+import glob
+from datetime import datetime, timezone
 from pathlib import Path
 from fractions import Fraction
 
@@ -74,6 +77,22 @@ def parse_number_list(values, default_values):
     for value in values:
         items.extend(part.strip() for part in str(value).split(",") if part.strip())
     return [parse_mpf(value) for value in items]
+
+
+def selected_residue_scales(args):
+    if args.residue_scale == "both":
+        return ["short", "full"]
+    return [args.residue_scale]
+
+
+def scale_to_short_c(scale):
+    if scale not in ("short", "full"):
+        raise ValueError("residue scale must be short or full.")
+    return scale == "short"
+
+
+def scale_label(scale):
+    return "residue_closed_short_C" if scale == "short" else "residue_closed_full_C"
 
 
 def parse_float(text):
@@ -218,8 +237,14 @@ def parse_args():
     parser.add_argument("--amflow-import-trust-metadata", action="store_true")
     parser.add_argument("--show-amflow-import-help", action="store_true")
     parser.add_argument("--amflow-eps-order", default="4")
+    parser.add_argument("--amflow-sanity-check", action="store_true")
+    parser.add_argument("--amflow-fresh-dry-run", action="store_true")
+    parser.add_argument("--amflow-parser-debug", action="store_true")
+    parser.add_argument("--allow-high-order-amflow", action="store_true")
+    parser.add_argument("--run-amflow-benchmark", action="store_true")
+    parser.add_argument("--compare-amflow-clean-points", action="store_true")
     parser.add_argument("--precision-goal", default="10")
-    parser.add_argument("--dps", type=int, default=50)
+    parser.add_argument("--dps", "--mp-dps", type=int, default=50, dest="dps")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--debug-include-2p20", action="store_true")
     parser.add_argument("--debug-normalization", action="store_true")
@@ -238,6 +263,12 @@ def parse_args():
     parser.add_argument("--method3-integrand-eps-expansion", "--transverse-integrand-expansion-check", action="store_true", dest="method3_integrand_eps_expansion")
     parser.add_argument("--method1-l-residue-direct-check", "--residue-1d-check", action="store_true", dest="method1_l_residue_direct_check")
     parser.add_argument("--method1-l-residue-closed-check", "--compare-closed-form", action="store_true", dest="compare_closed_form")
+    parser.add_argument("--residue-scale", choices=["full", "short", "both"], default="both", help="Closed-form validation residue scale to print; both is the current default.")
+    parser.add_argument("--residue-1d-cutoff-scan", action="store_true")
+    parser.add_argument("--ksubloop-numeric-check", action="store_true")
+    parser.add_argument("--ksubloop-q2", default=None)
+    parser.add_argument("--suggest-branch-safe-points", action="store_true")
+    parser.add_argument("--numerical-scale-ladder-check", action="store_true")
     parser.add_argument("--transverse-mc-check", action="store_true")
     parser.add_argument("--method3-coeff-order", type=int, default=2)
     parser.add_argument("--method3-coeff-eps-step", default="1e-3")
@@ -280,6 +311,63 @@ def parse_amflow_coefficients(output):
         except Exception:
             continue
     return raw, normalized
+
+
+def parse_amflow_metadata_block(text):
+    match = re.search(r"BEGIN_AMFLOW_METADATA\s*(.*?)\s*END_AMFLOW_METADATA", text, flags=re.S)
+    metadata = {}
+    if match:
+        for line in match.group(1).splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            metadata[key.strip()] = value.strip()
+    for match in re.finditer(r"AMFLOW_OBJECT_([A-Za-z0-9_]+)=(.*)", text):
+        key = match.group(1).strip()
+        value = match.group(2).strip()
+        if key == "POINT":
+            metadata.setdefault("point", value)
+        else:
+            metadata.setdefault(f"AMFLOW_{key}", value)
+    return metadata
+
+
+def metadata_value_matches(actual, expected):
+    actual = str(actual).strip()
+    expected = str(expected).strip()
+    if actual == expected:
+        return True
+    try:
+        return Fraction(actual) == Fraction(expected)
+    except Exception:
+        return False
+
+
+def amflow_metadata_mismatches(metadata, point_name, args=None):
+    point = get_point(point_name)
+    expected = {
+        "point": point.name,
+        "pPlus": point.p_plus,
+        "pMinus": point.p_minus,
+        "pPerp2": point.p_perp2,
+        "p2": point.p2,
+        "x": point.x,
+        "y": point.y,
+        "ml2": point.ml2,
+        "Ml2": point.Ml2,
+        "mk2": point.mk2,
+        "Mk2": point.Mk2,
+    }
+    if args is not None:
+        expected["AMFLOW_EPS_ORDER"] = args.amflow_eps_order
+        expected["AMFLOW_PRECISION_GOAL"] = args.precision_goal
+    mismatches = []
+    for key, expected_value in expected.items():
+        if key not in metadata:
+            mismatches.append((key, "<missing>", str(expected_value)))
+        elif not metadata_value_matches(metadata[key], expected_value):
+            mismatches.append((key, metadata[key], str(expected_value)))
+    return mismatches
 
 
 def parse_wolfram_association_coefficients(text, key):
@@ -332,6 +420,29 @@ def parse_imported_amflow_coefficients(text):
                 raw[power] = complex_from_wolfram(cells[1])
             if "not run" not in cells[2]:
                 normalized[power] = complex_from_wolfram(cells[2])
+        except Exception:
+            continue
+    if normalized:
+        return raw, normalized
+
+    in_laurent_comparison_table = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == "== Laurent Coefficient Comparison ==":
+            in_laurent_comparison_table = True
+            continue
+        if in_laurent_comparison_table and stripped.startswith("== "):
+            break
+        if not in_laurent_comparison_table or not stripped.startswith("| c["):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        power_match = re.fullmatch(r"c\[([-+]?\d+)\]", cells[0])
+        if not power_match or "not run" in cells[1]:
+            continue
+        try:
+            normalized[int(power_match.group(1))] = complex_from_wolfram(cells[1])
         except Exception:
             continue
     return raw, normalized
@@ -419,20 +530,40 @@ def process_amflow_import_args(args):
         if not source.exists():
             raise SystemExit(f"AMFlow import log does not exist: {source}")
         dest = amflow_import_log_dir() / source.name
-        shutil.copy2(source, dest)
-        copied.append(dest)
+        if source.resolve() != dest.resolve():
+            shutil.copy2(source, dest)
+            copied.append(dest)
     if args.amflow_import_result:
         source = Path(args.amflow_import_result).expanduser()
         if not source.exists():
             raise SystemExit(f"AMFlow import result does not exist: {source}")
         dest = amflow_import_result_dir() / source.name
-        shutil.copy2(source, dest)
-        copied.append(dest)
+        if source.resolve() != dest.resolve():
+            shutil.copy2(source, dest)
+            copied.append(dest)
     for dest in copied:
         print(f"Imported AMFlow file copied to: {dest}")
 
 
-def imported_amflow_candidate_paths(point_name):
+def explicit_amflow_import_candidate_paths(args):
+    paths = []
+    for option_name in ("amflow_import_log", "amflow_import_result"):
+        option_value = getattr(args, option_name, None)
+        if not option_value:
+            continue
+        source = Path(option_value).expanduser()
+        if source.exists():
+            paths.append(source)
+        if option_name == "amflow_import_log":
+            imported = amflow_import_log_dir() / source.name
+        else:
+            imported = amflow_import_result_dir() / source.name
+        if imported.exists():
+            paths.append(imported)
+    return paths
+
+
+def imported_amflow_candidate_paths(point_name, args=None):
     ensure_amflow_import_dirs()
     patterns = [
         f"{point_name}_amflow_coefficients.log",
@@ -441,6 +572,8 @@ def imported_amflow_candidate_paths(point_name):
         f"*{point_name}*.out",
     ]
     paths = []
+    if args is not None:
+        paths.extend(explicit_amflow_import_candidate_paths(args))
     for pattern in patterns:
         paths.extend(sorted(amflow_import_log_dir().glob(pattern)))
     paths.extend(sorted(amflow_import_result_dir().glob(f"*{point_name}*")))
@@ -454,11 +587,15 @@ def imported_amflow_candidate_paths(point_name):
 
 
 def imported_metadata_matches_point(text, point_name):
+    metadata = parse_amflow_metadata_block(text)
+    if metadata:
+        return not amflow_metadata_mismatches(metadata, point_name)
     point = get_point(point_name)
     has_name = (
         f"AMFLOW_OBJECT_POINT={point_name}" in text
         or f'"name" -> "{point_name}"' in text
         or f"name -> {point_name}" in text
+        or f"--point {point_name}" in text
         or f"point: {point_name}" in text
         or f"point {point_name}" in text
     )
@@ -487,11 +624,24 @@ def imported_metadata_matches_point(text, point_name):
         point.mk2,
         point.Mk2,
     ])
-    return has_name and (has_full_kinematic_line or has_metadata_association)
+    has_closed_form_report_table = all(fragment in text for fragment in [
+        f"| point             | {point_name}",
+        f"| P = pPlus         | {point.p_plus}",
+        f"| pMinus            | {point.p_minus}",
+        f"| p2                | {point.p2}",
+        f"| pPerp2            | {point.p_perp2}",
+        f"| x                 | {point.x}",
+        f"| y                 | {point.y}",
+        f"| ml2               | {point.ml2}",
+        f"| Ml2               | {point.Ml2}",
+        f"| mk2               | {point.mk2}",
+        f"| Mk2               | {point.Mk2}",
+    ])
+    return has_name and (has_full_kinematic_line or has_metadata_association or has_closed_form_report_table)
 
 
 def load_imported_amflow_coefficients(point_name, args):
-    candidates = imported_amflow_candidate_paths(point_name)
+    candidates = imported_amflow_candidate_paths(point_name, args)
     if not candidates:
         print(f"No imported AMFlow file found for point {point_name}.")
         print_amflow_import_help()
@@ -503,14 +653,29 @@ def load_imported_amflow_coefficients(point_name, args):
         raw, normalized = parse_imported_amflow_coefficients(text)
         if not normalized:
             continue
-        if not imported_metadata_matches_point(text, point_name):
+        metadata = parse_amflow_metadata_block(text)
+        mismatches = amflow_metadata_mismatches(metadata, point_name, args) if metadata else []
+        if metadata and mismatches and not args.amflow_import_trust_metadata:
+            print("ERROR: AMFlow metadata mismatch.")
+            print(f"Requested point: {point_name}")
+            print(f"File: {path}")
+            for key, actual, expected in mismatches:
+                print(f"  {key}: file={actual} requested={expected}")
+            print("Refusing to compare.")
+            continue
+        if not metadata and not imported_metadata_matches_point(text, point_name):
             missing_metadata_paths.append(path)
             if not args.amflow_import_trust_metadata:
                 continue
         print(f"AMFlow imported coefficients loaded from: {path}")
-        if missing_metadata_paths and args.amflow_import_trust_metadata:
-            print("WARNING: imported AMFlow file lacks full metadata; trusting it because --amflow-import-trust-metadata was passed.")
-        return raw, normalized, parse_amflow_object_lines(text), parse_amflow_combo_coefficients(text), text
+        if (missing_metadata_paths or mismatches) and args.amflow_import_trust_metadata:
+            print("WARNING: trusting imported AMFlow metadata manually.")
+        fields = parse_amflow_object_lines(text) | metadata
+        if args.amflow_parser_debug:
+            print_amflow_parser_debug(str(path), text, raw, normalized, fields)
+        if args.amflow_sanity_check:
+            amflow_sanity_check(point_name, normalized, args)
+        return raw, normalized, fields, parse_amflow_combo_coefficients(text), text
 
     if missing_metadata_paths and not args.amflow_import_trust_metadata:
         print("Imported AMFlow file lacks full metadata. Please confirm or rerun AMFlow fresh.")
@@ -534,6 +699,7 @@ def run_amflow(point_name, eps, args):
     env["TWO_LOOP_EPS_VALUE"] = str(float(eps))
     env["AMFLOW_EPS_ORDER"] = args.amflow_eps_order
     env["AMFLOW_PRECISION_GOAL"] = args.precision_goal
+    env["AMFLOW_RESIDUE_SCALE"] = args.residue_scale
     if args.amflow == "reuse":
         env["AMFLOW_REUSE_RESULT"] = "1"
 
@@ -573,6 +739,7 @@ def run_amflow_eps_values(point_name, eps_values, args):
     env["TWO_LOOP_EPS_LIST"] = ",".join(str(eps) for eps in eps_values)
     env["AMFLOW_EPS_ORDER"] = args.amflow_eps_order
     env["AMFLOW_PRECISION_GOAL"] = args.precision_goal
+    env["AMFLOW_RESIDUE_SCALE"] = args.residue_scale
     if args.amflow == "reuse":
         env["AMFLOW_REUSE_RESULT"] = "1"
 
@@ -602,22 +769,117 @@ def run_amflow_eps_values(point_name, eps_values, args):
     return values, proc.stdout
 
 
+def amflow_cache_candidates(point_name):
+    repo = repo_root() / "amflow-project"
+    patterns = [
+        "targets/cache/twoloopkerneluncutpp*",
+        "targets/cache/twoloopkerneluncutpm*",
+        "targets/cache/twoloopkerneluncutmp*",
+        "targets/cache/twoloopkerneluncutmm*",
+        "targets/cache/comparetwoloopfixedeps*",
+        f"targets/cache/*{point_name}*",
+        f"results/compare_twoloop_fixed_eps_result_{point_name}.wl",
+        "results/compare_twoloop_fixed_eps_result.wl",
+    ]
+    paths = []
+    for pattern in patterns:
+        paths.extend(Path(path) for path in glob.glob(str(repo / pattern)))
+    unique = []
+    seen = set()
+    for path in paths:
+        if path not in seen and path.exists():
+            unique.append(path)
+            seen.add(path)
+    return unique
+
+
+def clean_amflow_caches(point_name, dry_run=False):
+    paths = amflow_cache_candidates(point_name)
+    label = "would delete" if dry_run else "deleted"
+    if not paths:
+        print(f"AMFLOW_FRESH_CACHE_CLEAN: no matching cache paths for {point_name}")
+        return []
+    cleaned = []
+    for path in paths:
+        print(f"AMFLOW_FRESH_CACHE_CLEAN {label}: {path}")
+        cleaned.append(str(path))
+        if dry_run:
+            continue
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    return cleaned
+
+
+def git_commit_hash():
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_root()),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return proc.stdout.strip() if proc.returncode == 0 else "unavailable"
+    except Exception:
+        return "unavailable"
+
+
+def print_amflow_fingerprint(point_name, args, cleaned_paths=None, log_path=None):
+    point = get_point(point_name)
+    print("BEGIN_AMFLOW_RUN_FINGERPRINT")
+    print(f"point={point.name}")
+    print(f"pPlus={point.p_plus}")
+    print(f"pMinus={point.p_minus}")
+    print(f"pPerp2={point.p_perp2}")
+    print(f"p2={point.p2}")
+    print(f"x={point.x}")
+    print(f"y={point.y}")
+    print(f"ml2={point.ml2}")
+    print(f"Ml2={point.Ml2}")
+    print(f"mk2={point.mk2}")
+    print(f"Mk2={point.Mk2}")
+    print(f"AMFLOW_EPS_ORDER={args.amflow_eps_order}")
+    print(f"AMFLOW_PRECISION_GOAL={args.precision_goal}")
+    print(f"Mathematica_script={repo_root() / 'amflow-project' / 'targets' / 'CompareTwoLoopFixedEps.wl'}")
+    print(f"git_commit={git_commit_hash()}")
+    print(f"timestamp={datetime.now(timezone.utc).isoformat()}")
+    print(f"residue_scale_comparison={args.residue_scale}")
+    if log_path is not None:
+        print(f"log_path={log_path}")
+    for path in cleaned_paths or []:
+        print(f"cache_path_cleaned={path}")
+    print("END_AMFLOW_RUN_FINGERPRINT")
+
+
 def run_amflow_coefficients(point_name, eps, args):
     if args.amflow == "imported":
         return load_imported_amflow_coefficients(point_name, args)
+    check_high_order_amflow_allowed(point_name, args)
 
     repo = repo_root()
     run_sh = repo / "amflow-project" / "run.sh"
     log_dir = repo / "amflow-project" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"two-loop-method3-mc-compare_amflow_{point_name}_coefficients.log"
+    cleaned_paths = []
+    if args.amflow == "fresh":
+        cleaned_paths = clean_amflow_caches(point_name, dry_run=args.amflow_fresh_dry_run)
     env = os.environ.copy()
     env["TWO_LOOP_POINT"] = point_name
     env["TWO_LOOP_EPS_VALUE"] = str(float(eps))
     env["AMFLOW_EPS_ORDER"] = args.amflow_eps_order
     env["AMFLOW_PRECISION_GOAL"] = args.precision_goal
+    env["AMFLOW_RESIDUE_SCALE"] = args.residue_scale
     if args.amflow == "reuse":
         env["AMFLOW_REUSE_RESULT"] = "1"
+
+    if args.amflow_fresh_dry_run:
+        print_amflow_fingerprint(point_name, args, cleaned_paths=cleaned_paths, log_path=log_path)
+        print(f"AMFLOW_FRESH_DRY_RUN command: {run_sh} compare-twoloop-fixed-eps")
+        return {}, {}, {}, {}, "AMFLOW_FRESH_DRY_RUN"
 
     proc = subprocess.run(
         [str(run_sh), "compare-twoloop-fixed-eps"],
@@ -630,12 +892,17 @@ def run_amflow_coefficients(point_name, eps, args):
     )
     log_path.write_text(proc.stdout, encoding="utf-8")
     print(f"AMFlow coefficient log written to: {log_path}")
+    print_amflow_fingerprint(point_name, args, cleaned_paths=cleaned_paths, log_path=log_path)
     if proc.returncode != 0:
         return {}, {}, {}, {}, proc.stdout
 
     raw, normalized = parse_amflow_coefficients(proc.stdout)
     object_fields = parse_amflow_object_lines(proc.stdout)
     combo_coeffs = parse_amflow_combo_coefficients(proc.stdout)
+    if args.amflow_parser_debug:
+        print_amflow_parser_debug(str(log_path), proc.stdout, raw, normalized, object_fields)
+    if args.amflow_sanity_check:
+        amflow_sanity_check(point_name, normalized, args)
     return raw, normalized, object_fields, combo_coeffs, proc.stdout
 
 
@@ -649,6 +916,118 @@ def ensure_amflow_order_for_powers(args, max_power):
             f"c[{actual_order - 4}]. AMFlow tables will include only the available powers; "
             f"rerun with --amflow-eps-order {required_order} for higher AMFlow coefficients."
         )
+
+
+def sanity_marker_path(point_name):
+    return repo_root() / "amflow-project" / "targets" / "output" / f"amflow_sanity_{point_name}_epsorder4.json"
+
+
+KNOWN_AMFLOW_BENCHMARKS = {
+    "equal_mass_offshell_positive": {
+        -2: 2 / 3,
+        -1: 3.005686100222,
+        0: 2.226118637208,
+    }
+}
+
+
+def check_high_order_amflow_allowed(point_name, args):
+    try:
+        order = int(args.amflow_eps_order)
+    except Exception:
+        return
+    if args.amflow in ("skip", "imported") or order <= 4 or args.allow_high_order_amflow:
+        return
+    marker = sanity_marker_path(point_name)
+    if marker.exists():
+        return
+    raise SystemExit(
+        "Refusing high-order AMFlow before order-4 sanity passes.\n"
+        "First run with --amflow-eps-order 4, or pass --allow-high-order-amflow."
+    )
+
+
+def branch_safe_for_amflow_leading_pole(point):
+    try:
+        ingredients = closed_form_residue_ingredients(point, scale="short")
+        return ingredients["Delta0"] > 0 and ingredients["A1"] > 0 and 0 < ingredients["z"] < 1
+    except Exception:
+        return False
+
+
+def amflow_sanity_check(point_name, coeffs, args):
+    point = get_point(point_name)
+    status = "PASSED"
+    messages = []
+    benchmark = KNOWN_AMFLOW_BENCHMARKS.get(point_name)
+    if benchmark:
+        for power, expected in benchmark.items():
+            actual = coeffs.get(power)
+            if actual is None:
+                status = "FAILED"
+                messages.append(f"missing c[{power}]")
+                continue
+            diff = abs(actual - expected)
+            tol = 1e-8 + 1e-8 * abs(expected)
+            if diff > tol:
+                status = "FAILED"
+                messages.append(f"c[{power}] actual={fmt_complex(actual)} expected={expected:.12e} diff={diff:.4e}")
+    cminus2 = coeffs.get(-2)
+    if cminus2 is not None:
+        X = float(point.p_plus - point.x)
+        scale = max(1.0, abs(1 / (2 * X)), abs(1 / X))
+        if abs(cminus2) > 10 * scale:
+            messages.append("WARNING: suspicious AMFlow leading pole magnitude.")
+        if branch_safe_for_amflow_leading_pole(point) and abs(complex(cminus2).imag) > 1e-8:
+            messages.append("WARNING: suspicious AMFlow leading pole imaginary part for branch-safe point.")
+    print(f"AMFLOW_SANITY = {status}")
+    for message in messages:
+        print(message)
+    if args.amflow_sanity_check and status == "FAILED":
+        print("ERROR: AMFlow sanity benchmark failed.")
+        print("Do not interpret this AMFlow result.")
+    if status == "PASSED" and int(args.amflow_eps_order) == 4:
+        marker = sanity_marker_path(point_name)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(
+            json.dumps(
+                {
+                    "point": point_name,
+                    "AMFLOW_EPS_ORDER": args.amflow_eps_order,
+                    "AMFLOW_PRECISION_GOAL": args.precision_goal,
+                    "coefficients": {str(power): [complex(value).real, complex(value).imag] for power, value in coeffs.items()},
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "status": status,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        print(f"AMFLOW_SANITY_MARKER={marker}")
+    return status, messages
+
+
+def print_amflow_parser_debug(source_label, text, raw, normalized, fields):
+    print()
+    print("== AMFlow Parser Debug ==")
+    print(f"source: {source_label}")
+    metadata = parse_amflow_metadata_block(text)
+    print("raw metadata block:")
+    if metadata:
+        for key in sorted(metadata):
+            print(f"  {key} = {metadata[key]}")
+    else:
+        print("  <none>")
+    print("raw coefficient lines found:")
+    for line in text.splitlines():
+        if "AMFLOW_COEFF_POWER=" in line or line.strip().startswith("| c["):
+            print(f"  {line}")
+    print("parsed powers:", sorted(set(raw) | set(normalized)))
+    print_small_table(
+        ["coefficient", "raw", "normalized"],
+        [[f"c[{power}]", fmt_complex(raw.get(power)), fmt_complex(normalized.get(power))] for power in sorted(set(raw) | set(normalized))],
+    )
 
 
 def fmt_complex(z):
@@ -2911,7 +3290,7 @@ def require_mpmath_for_l_residue():
         ) from exc
 
 
-def l_residue_ingredients(point, eps, eta, contour_sign, short_C_diagnostic=False):
+def l_residue_ingredients(point, eps, eta, contour_sign, short_C_diagnostic=False, scale=None):
     eps_f = float(eps)
     x = float(point.x)
     y = float(point.y)
@@ -2927,7 +3306,8 @@ def l_residue_ingredients(point, eps, eta, contour_sign, short_C_diagnostic=Fals
     a1_short = mu_k - kappa * (1.0 - x) * p2 + kappa * (1.0 - x) / x * ml2
     extra_offshell_term = -lam * (1.0 - lam * x) * p2
     a1_full = a1_short + extra_offshell_term
-    a1 = a1_short if short_C_diagnostic else a1_full
+    use_short = scale_to_short_c(scale) if scale is not None else short_C_diagnostic
+    a1 = a1_short if use_short else a1_full
     b1 = kappa / x
     d = 4.0 - 2.0 * eps_f
     n = 2.0 - 2.0 * eps_f
@@ -2958,8 +3338,10 @@ def l_residue_ingredients(point, eps, eta, contour_sign, short_C_diagnostic=Fals
         "A1_full": a1_full,
         "A1_short_without_extra_term": a1_short,
         "extra_offshell_term": extra_offshell_term,
-        "C_full_includes_extra_offshell_term": not short_C_diagnostic,
+        "scale": "short" if use_short else "full",
+        "C_full_includes_extra_offshell_term": not use_short,
         "B1": b1,
+        "z": 1.0 - b1 * delta0 / a1,
         "d": d,
         "n": n,
         "Omega_n": omega_n,
@@ -3057,7 +3439,7 @@ def l_residue_integral_infinite_float(ingredients):
     return ingredients["prefactor"] * integral
 
 
-def l_residue_integrals_mpmath(point, eps, eta, contour_sign, dps=50, short_C_diagnostic=False):
+def l_residue_integrals_mpmath(point, eps, eta, contour_sign, dps=50, short_C_diagnostic=False, scale=None):
     try:
         import mpmath as mp  # type: ignore
     except Exception as exc:
@@ -3083,7 +3465,8 @@ def l_residue_integrals_mpmath(point, eps, eta, contour_sign, dps=50, short_C_di
     delta0 = mp.mpf(delta0_value(point).numerator) / delta0_value(point).denominator
     a1_short = mu_k - kappa * (1 - x) * p2 + kappa * (1 - x) / x * ml2
     extra_offshell_term = -lam * (1 - lam * x) * p2
-    a1 = a1_short if short_C_diagnostic else a1_short + extra_offshell_term
+    use_short = scale_to_short_c(scale) if scale is not None else short_C_diagnostic
+    a1 = a1_short if use_short else a1_short + extra_offshell_term
     b1 = kappa / x
     d = 4 - 2 * eps_mp
     n = 2 - 2 * eps_mp
@@ -3323,23 +3706,387 @@ def run_method1_l_residue_direct_mode(point_names, eps, eta, args):
     return results
 
 
+def branch_warning_for_ingredients(ingredients):
+    warnings = []
+    if float(ingredients["A1"]) < 0:
+        warnings.append("A1 < 0")
+    if not (0.0 <= float(ingredients["z"]) <= 1.0):
+        warnings.append("z outside [0,1]")
+    return "; ".join(warnings) if warnings else "none"
+
+
+def residue_1d_scale_check_for_point(point_name, eps, eta, args, include_cutoff_scan=False):
+    point = get_point(point_name)
+    print()
+    print(f"######## Residue 1D Numeric Scale Check: {point.name} ########")
+    print("AMFlow is optional here; this numerical check compares the direct t-integral to its hypergeometric closed form.")
+    if point.p_plus != 1 or point.p_perp2 != 0:
+        print("residue_1d_numeric currently supports pPlus=1 and pPerp2=0 only.")
+        return {"point_name": point_name, "skipped": True}
+
+    rows = []
+    results = {}
+    for scale in selected_residue_scales(args):
+        short_c = scale_to_short_c(scale)
+        ingredients = l_residue_ingredients(point, eps, eta, 1, scale=scale)
+        infinite_mp, cutoff_mp = l_residue_integrals_mpmath(point, eps, eta, 1, dps=args.dps, scale=scale)
+        numeric = complex(infinite_mp)
+        closed = method1_l_residue_closed_value(point, eps, eta, scale=scale)
+        rows.append(
+            [
+                scale,
+                fmt_complex(numeric),
+                fmt_complex(closed),
+                fmt_complex(numeric - closed),
+                fmt_complex(ratio_or_none(numeric, closed)),
+                f"{ingredients['Delta0']:.16e}",
+                f"{ingredients['A1']:.16e}",
+                f"{ingredients['B1']:.16e}",
+                f"{ingredients['z']:.16e}",
+                branch_warning_for_ingredients(ingredients),
+            ]
+        )
+        results[scale] = {
+            "numeric": numeric,
+            "closed": closed,
+            "ingredients": ingredients,
+            "relative_error": abs(numeric - closed) / max(abs(closed), 1e-300),
+        }
+        if include_cutoff_scan or args.residue_1d_cutoff_scan:
+            print()
+            print(f"== Residue 1D Cutoff Scan, scale={scale} ==")
+            cutoff_rows = []
+            for tmax in [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]:
+                value = complex(cutoff_mp(tmax))
+                cutoff_rows.append([
+                    tmax,
+                    fmt_complex(value),
+                    fmt_complex(value - closed),
+                    fmt_complex(ratio_or_none(value, closed)),
+                ])
+            print_small_table(["Tmax", "I(Tmax)", "I(Tmax)-closed", "I(Tmax)/closed"], cutoff_rows)
+
+    print()
+    print("== Residue 1D Numeric vs Closed Form ==")
+    print_small_table(
+        ["scale", "residue_1d_numeric", "residue_closed_form", "numeric-closed", "numeric/closed", "Delta0", "A1", "B1", "z", "branch_warning"],
+        rows,
+    )
+    return {"point_name": point_name, "results": results}
+
+
+def run_residue_1d_scale_check_mode(point_names, eps, eta, args, include_cutoff_scan=False):
+    output_dir = repo_root() / "amflow-project" / "targets" / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_name = (
+        "two_loop_residue_1d_numeric_all_points.txt"
+        if len(point_names) > 1
+        else f"two_loop_residue_1d_numeric_{point_names[0]}.txt"
+    )
+    report_path = output_dir / report_name
+    with report_path.open("w", encoding="utf-8") as report:
+        tee = Tee(sys.stdout, report)
+        with contextlib.redirect_stdout(tee):
+            results = [residue_1d_scale_check_for_point(point_name, eps, eta, args, include_cutoff_scan=include_cutoff_scan) for point_name in point_names]
+    print(f"Residue 1D numeric report written to: {report_path}")
+    return results
+
+
+def ksubloop_scales(point, q2):
+    X = point.p_plus - point.x
+    lam = point.y / X
+    kappa = lam * (1 - lam)
+    mu_k = (1 - lam) * point.mk2 + lam * point.Mk2
+    c_short = mu_k - kappa * q2
+    c_full = c_short - lam * (1 - lam * point.x) * point.p2
+    return X, lam, kappa, mu_k, c_short, c_full
+
+
+def ksubloop_numeric_mpmath(point, eps, eta, q2, dps=80):
+    mp.mp.dps = int(dps)
+    eps_mp = mp.mpf(str(float(eps)))
+    eta_mp = mp.mpf(str(float(eta)))
+    X, lam, _kappa, _mu_k, c_short, _c_full = ksubloop_scales(point, q2)
+    X_mp = mp.mpf(X.numerator) / X.denominator
+    c_mp = mp.mpf(c_short.numerator) / c_short.denominator
+    # This prefactor is the direct light-cone residue normalization after the
+    # k^- contour, chosen so the numerical t-integral reproduces the standard
+    # one-loop cut result Gamma(eps)/X * (C_short-i0)^(-eps).
+    pref = 1 / (X_mp * mp.gamma(1 - eps_mp))
+
+    def integrand_t(t):
+        return t ** (-eps_mp) / (t + c_mp - 1j * eta_mp)
+
+    t0 = mp.mpf("1e-30")
+    z_end = 1 - mp.mpf("1e-20")
+    z_splits = [t0, mp.mpf("1e-10"), mp.mpf("1e-8"), mp.mpf("1e-6"), mp.mpf("1e-4"), mp.mpf("1e-2"), mp.mpf("0.1"), mp.mpf("0.5"), mp.mpf("0.9"), mp.mpf("0.99"), mp.mpf("0.999"), mp.mpf("0.9999"), mp.mpf("0.99999"), mp.mpf("0.999999"), z_end]
+
+    def integrand_z(z):
+        t = z / (1 - z)
+        return integrand_t(t) / (1 - z) ** 2
+
+    small_t_endpoint = (c_mp - 1j * eta_mp) ** (-1) * t0 ** (1 - eps_mp) / (1 - eps_mp)
+    t_end = z_end / (1 - z_end)
+    large_t_tail = t_end ** (-eps_mp) / eps_mp
+    raw = mp.quad(integrand_z, z_splits) + small_t_endpoint + large_t_tail
+    normalized = pref * raw
+    return complex(normalized), complex(raw), complex(pref)
+
+
+def ksubloop_analytic(point, eps, eta, q2, scale):
+    eps_f = float(eps)
+    X, _lam, _kappa, _mu_k, c_short, c_full = ksubloop_scales(point, q2)
+    scale_value = c_short if scale == "short" else c_full
+    return math.gamma(eps_f) / float(X) * complex(float(scale_value), -float(eta)) ** (-eps_f)
+
+
+def ksubloop_q2_values(point, args):
+    if args.ksubloop_q2 is not None:
+        return [parse_mpf(args.ksubloop_q2)]
+    return [point.Ml2, Fraction(0), point.p2 / 3, Fraction(-1)]
+
+
+def ksubloop_numeric_check_for_point(point_name, eps, eta, args):
+    point = get_point(point_name)
+    print()
+    print(f"######## k-Subloop Numeric Scale Check: {point.name} ########")
+    print("This check is independent of AMFlow. The direct k^- residue supports the scale used by the k-subloop.")
+    if point.p_plus != 1 or point.p_perp2 != 0:
+        print("ksubloop_numeric_check currently supports pPlus=1 and pPerp2=0 only.")
+        return {"point_name": point_name, "skipped": True}
+
+    rows = []
+    best_by_q2 = {}
+    for q2 in ksubloop_q2_values(point, args):
+        X, lam, kappa, mu_k, c_short, c_full = ksubloop_scales(point, q2)
+        numeric, raw, pref = ksubloop_numeric_mpmath(point, eps, eta, q2, dps=args.dps)
+        short_value = ksubloop_analytic(point, eps, eta, q2, "short")
+        full_value = ksubloop_analytic(point, eps, eta, q2, "full")
+        err_short = abs(numeric - short_value) / max(abs(short_value), 1e-300)
+        err_full = abs(numeric - full_value) / max(abs(full_value), 1e-300)
+        best = "short" if err_short <= err_full else "full"
+        best_by_q2[str(q2)] = best
+        rows.append([
+            q2,
+            X,
+            lam,
+            kappa,
+            point.p2,
+            mu_k,
+            c_short,
+            c_full,
+            fmt_complex(raw),
+            fmt_complex(pref),
+            fmt_complex(numeric),
+            fmt_complex(short_value),
+            fmt_float(err_short),
+            fmt_complex(full_value),
+            fmt_float(err_full),
+            best,
+        ])
+    print_small_table(
+        [
+            "q2",
+            "qPlus=X",
+            "lambda",
+            "kappa",
+            "p2",
+            "mu_k(lambda)",
+            "C_short_scale",
+            "C_full_scale",
+            "raw t-integral",
+            "normalization",
+            "K_numeric",
+            "K_short_analytic",
+            "relerr short",
+            "K_full_analytic",
+            "relerr full",
+            "BEST_MATCH",
+        ],
+        rows,
+    )
+    votes = list(best_by_q2.values())
+    best_match = max(set(votes), key=votes.count) if votes else "not available"
+    print(f"BEST_MATCH = {best_match}")
+    return {"point_name": point_name, "best_match": best_match, "best_by_q2": best_by_q2}
+
+
+def run_ksubloop_numeric_check_mode(point_names, eps, eta, args):
+    output_dir = repo_root() / "amflow-project" / "targets" / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_name = (
+        "two_loop_ksubloop_numeric_all_points.txt"
+        if len(point_names) > 1
+        else f"two_loop_ksubloop_numeric_{point_names[0]}.txt"
+    )
+    report_path = output_dir / report_name
+    with report_path.open("w", encoding="utf-8") as report:
+        tee = Tee(sys.stdout, report)
+        with contextlib.redirect_stdout(tee):
+            results = [ksubloop_numeric_check_for_point(point_name, eps, eta, args) for point_name in point_names]
+    print(f"k-subloop numeric report written to: {report_path}")
+    return results
+
+
+def suggest_branch_safe_points():
+    print("Branch-safe point suggestions for scale diagnostics")
+    print("Criteria: support, Delta0 > 0, A1_short > 0, A1_full > 0.")
+    xs = [Fraction(1, 6), Fraction(1, 5), Fraction(1, 4), Fraction(1, 3), Fraction(2, 5)]
+    ys = [Fraction(1, 6), Fraction(1, 5), Fraction(1, 4), Fraction(3, 10), Fraction(1, 3)]
+    p2_values = [Fraction(1, 5), Fraction(1, 2), Fraction(1), Fraction(2), Fraction(3)]
+    ml2_values = [Fraction(1, 4), Fraction(49, 100), Fraction(1), Fraction(9, 4)]
+    Ml2_values = [Fraction(4, 5), Fraction(1), Fraction(6, 5), Fraction(2), Fraction(4)]
+    mk2_values = [Fraction(1, 5), Fraction(1, 4), Fraction(1, 2), Fraction(9, 10), Fraction(1)]
+    Mk2_values = [Fraction(4, 5), Fraction(9, 10), Fraction(6, 5), Fraction(3, 2), Fraction(2)]
+
+    candidates = []
+    for x in xs:
+        for y in ys:
+            if x <= 0 or y <= 0 or x + y >= 1 or x == y:
+                continue
+            for p2 in p2_values:
+                for ml2 in ml2_values:
+                    for Ml2 in Ml2_values:
+                        for mk2 in mk2_values:
+                            for Mk2 in Mk2_values:
+                                if ml2 == Ml2 == mk2 == Mk2:
+                                    continue
+                                point = TwoLoopPoint(
+                                    name="candidate",
+                                    p_plus=Fraction(1),
+                                    p_minus=p2,
+                                    p_perp2=Fraction(0),
+                                    x=x,
+                                    y=y,
+                                    ml2=ml2,
+                                    Ml2=Ml2,
+                                    mk2=mk2,
+                                    Mk2=Mk2,
+                                )
+                                try:
+                                    full = l_residue_ingredients(point, Fraction(1, 10), Fraction(1, 10**30), 1, scale="full")
+                                    short = l_residue_ingredients(point, Fraction(1, 10), Fraction(1, 10**30), 1, scale="short")
+                                except ZeroDivisionError:
+                                    continue
+                                if not (full["Delta0"] > 0 and short["A1"] > 0 and full["A1"] > 0):
+                                    continue
+                                z_short = short["z"]
+                                z_full = full["z"]
+                                both_z_inside = 0 < z_short < 1 and 0 < z_full < 1
+
+                                def branch_distance(z):
+                                    return min(float(z), float(1 - z)) if 0 < z < 1 else -abs(float(z) - 0.5)
+
+                                simplicity = -sum(value.denominator for value in [x, y, p2, ml2, Ml2, mk2, Mk2])
+                                mass_diversity = len({ml2, Ml2, mk2, Mk2})
+                                score = (
+                                    1 if both_z_inside else 0,
+                                    min(branch_distance(z_short), branch_distance(z_full)),
+                                    simplicity,
+                                    abs(float(x - y)),
+                                    mass_diversity,
+                                )
+                                candidates.append((score, point, short, full, both_z_inside))
+    candidates.sort(reverse=True, key=lambda item: item[0])
+    rows = []
+    for index, (_score, point, short, full, both_z_inside) in enumerate(candidates[:10], start=1):
+        rows.append([
+            f"four_mass_offshell_branch_safe_candidate_{index}",
+            point.x,
+            point.y,
+            point.p2,
+            point.ml2,
+            point.Ml2,
+            point.mk2,
+            point.Mk2,
+            f"{full['Delta0']:.8g}",
+            f"{short['A1']:.8g}",
+            f"{full['A1']:.8g}",
+            f"{full['B1']:.8g}",
+            f"{short['z']:.8g}",
+            f"{full['z']:.8g}",
+            "inside" if both_z_inside else "branch warning",
+        ])
+    print_small_table(
+        ["name suggestion", "x", "y", "p2", "ml2", "Ml2", "mk2", "Mk2", "Delta0", "A1_short", "A1_full", "B1", "z_short", "z_full", "branch flags"],
+        rows,
+    )
+    print()
+    inside_count = sum(1 for _score, _point, _short, _full, inside in candidates if inside)
+    print(f"Found {len(candidates)} positive-A candidates; {inside_count} have both z_short and z_full in (0,1).")
+    print("Added named points: four_mass_offshell_branch_safe_A, four_mass_offshell_branch_safe_B, four_mass_offshell_branch_safe_C")
+
+
+def run_numerical_scale_ladder_mode(point_names, eps, eta, args):
+    old_amflow = args.amflow
+    if old_amflow == "fresh":
+        args.amflow = "skip"
+    output_dir = repo_root() / "amflow-project" / "targets" / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_name = (
+        "two_loop_scale_ladder_all_points.txt"
+        if len(point_names) > 1
+        else f"two_loop_scale_ladder_{point_names[0]}.txt"
+    )
+    report_path = output_dir / report_name
+    with report_path.open("w", encoding="utf-8") as report:
+        tee = Tee(sys.stdout, report)
+        with contextlib.redirect_stdout(tee):
+            print("Numerical scale ladder. AMFlow is not used unless explicitly requested with --amflow imported/reuse/fresh.")
+            if old_amflow == "fresh":
+                print("AMFlow default would be fresh; ladder mode changed it to skip to keep this independent.")
+            summary_rows = []
+            for point_name in point_names:
+                ksub = ksubloop_numeric_check_for_point(point_name, eps, eta, args)
+                residue = residue_1d_scale_check_for_point(point_name, eps, eta, args, include_cutoff_scan=True)
+                point = get_point(point_name)
+                for scale, result in residue.get("results", {}).items():
+                    ingredients = result["ingredients"]
+                    summary_rows.append([
+                        point_name,
+                        scale,
+                        ksub.get("best_match", "not available"),
+                        fmt_float(result["relative_error"]),
+                        f"{ingredients['Delta0']:.8g}",
+                        f"{ingredients['A1']:.8g}",
+                        f"{ingredients['B1']:.8g}",
+                        f"{ingredients['z']:.8g}",
+                        branch_warning_for_ingredients(ingredients),
+                    ])
+            print()
+            print("== Numerical Scale Ladder Summary ==")
+            print_small_table(
+                ["point", "scale", "best_match_ksubloop", "residue_1d_error", "Delta0", "A1", "B1", "z", "branch_warning"],
+                summary_rows,
+            )
+    if len(point_names) == 1:
+        point_name = point_names[0]
+        for companion_name in [
+            f"two_loop_ksubloop_numeric_{point_name}.txt",
+            f"two_loop_residue_1d_numeric_{point_name}.txt",
+        ]:
+            shutil.copy2(report_path, output_dir / companion_name)
+    args.amflow = old_amflow
+    print(f"Numerical scale ladder report written to: {report_path}")
+
+
 def mp_to_complex(value):
     return complex(float(mp.re(value)), float(mp.im(value)))
 
 
-def method1_l_residue_closed_value(point, eps, eta, short_C_diagnostic=False):
+def method1_l_residue_closed_value(point, eps, eta, short_C_diagnostic=False, scale=None):
     mp.mp.dps = 80
     return mp_to_complex(
         kernel_method1_l_residue_closed(
             point,
             mp.mpf(str(float(eps))),
             eta=mp.mpf(str(float(eta))),
-            short_C_diagnostic=short_C_diagnostic,
+            short_C_diagnostic=scale_to_short_c(scale) if scale is not None else short_C_diagnostic,
         )
     )
 
 
-def method1_l_residue_closed_coefficients(point, min_power=-2, max_power=2, short_C_diagnostic=False):
+def method1_l_residue_closed_coefficients(point, min_power=-2, max_power=2, short_C_diagnostic=False, scale=None):
     mp.mp.dps = 100
     degree = max_power + 10
     if min_power < -2:
@@ -3355,7 +4102,7 @@ def method1_l_residue_closed_coefficients(point, min_power=-2, max_power=2, shor
             point,
             eps,
             eta=mp.mpf("1e-40"),
-            short_C_diagnostic=short_C_diagnostic,
+            short_C_diagnostic=scale_to_short_c(scale) if scale is not None else short_C_diagnostic,
         )
         for eps in eps_nodes
     ])
@@ -3628,6 +4375,23 @@ def compact_coeff_row(power, residue_coeffs, product_coeffs, amflow_coeffs):
     ]
 
 
+def compact_coeff_row_scale(power, short_coeffs, full_coeffs, product_coeffs, amflow_coeffs):
+    amf = amflow_coeffs.get(power)
+    short = short_coeffs.get(power)
+    full = full_coeffs.get(power)
+    product = product_coeffs.get(power)
+    return [
+        f"c[{power}]",
+        fmt_complex(amf),
+        fmt_complex(short),
+        fmt_complex(full),
+        fmt_complex(product),
+        fmt_complex(None if amf is None else short - amf),
+        fmt_complex(None if amf is None else full - amf),
+        fmt_complex(None if amf is None else product - amf),
+    ]
+
+
 def compare_closed_form_for_point(point_name, eps, eta, args):
     point = get_point(point_name)
     min_power = args.fit_min_power
@@ -3640,12 +4404,14 @@ def compare_closed_form_for_point(point_name, eps, eta, args):
         print("residue_closed_form currently supports P=pPlus=1 and pPerp2=0 only.")
         return {"point_name": point_name, "skipped": True}
 
-    ingredients = closed_form_residue_ingredients(point)
-    short_ingredients = closed_form_residue_ingredients(point, short_C_diagnostic=True)
+    ingredients = closed_form_residue_ingredients(point, scale="full")
+    short_ingredients = closed_form_residue_ingredients(point, scale="short")
     product_coeffs = product_laurent_coefficients(point, max_order=max_power, min_power=min_power, eta=eta)
-    residue_coeffs = residue_laurent_coefficients(point, max_order=max_power, min_power=min_power, eta=Fraction(1, 10**40))
+    residue_full_coeffs = residue_laurent_coefficients(point, max_order=max_power, min_power=min_power, eta=Fraction(1, 10**40), scale="full")
+    residue_short_coeffs = residue_laurent_coefficients(point, max_order=max_power, min_power=min_power, eta=Fraction(1, 10**40), scale="short")
     product_value = product_closed_form(point, eps, eta=eta)
-    residue_value = residue_closed_form(point, eps, eta=eta)
+    residue_full_value = residue_closed_form(point, eps, eta=eta, scale="full")
+    residue_short_value = residue_closed_form(point, eps, eta=eta, scale="short")
 
     amflow_coeffs = {}
     amflow_from_coeffs = None
@@ -3703,10 +4469,12 @@ def compare_closed_form_for_point(point_name, eps, eta, args):
         ["quantity", "value"],
         [
             ["eps", eps],
-            ["residue_closed_form", fmt_complex(residue_value)],
+            ["residue_closed_short_C", fmt_complex(residue_short_value)],
+            ["residue_closed_full_C", fmt_complex(residue_full_value)],
             ["product_closed_form", fmt_complex(product_value)],
             ["AMFlow_from_coeffs", fmt_complex(amflow_from_coeffs)],
-            ["residue_closed_form - AMFlow", fmt_complex(None if amflow_from_coeffs is None else residue_value - amflow_from_coeffs)],
+            ["residue_closed_short_C - AMFlow", fmt_complex(None if amflow_from_coeffs is None else residue_short_value - amflow_from_coeffs)],
+            ["residue_closed_full_C - AMFlow", fmt_complex(None if amflow_from_coeffs is None else residue_full_value - amflow_from_coeffs)],
             ["product_closed_form - AMFlow", fmt_complex(None if amflow_from_coeffs is None else product_value - amflow_from_coeffs)],
         ],
     )
@@ -3717,37 +4485,45 @@ def compare_closed_form_for_point(point_name, eps, eta, args):
         [
             "coefficient",
             "AMFlow",
-            "residue_closed_form",
+            "residue_closed_short_C",
+            "residue_closed_full_C",
             "product_closed_form",
-            "residue-AMFlow",
+            "short-AMFlow",
+            "full-AMFlow",
             "product-AMFlow",
-            "residue/AMFlow",
-            "product/AMFlow",
         ],
-        [compact_coeff_row(power, residue_coeffs, product_coeffs, amflow_coeffs) for power in range(min_power, max_power + 1)],
+        [compact_coeff_row_scale(power, residue_short_coeffs, residue_full_coeffs, product_coeffs, amflow_coeffs) for power in range(min_power, max_power + 1)],
     )
 
-    residue_score = coefficient_score_against_amflow(residue_coeffs, amflow_coeffs)
+    short_score = coefficient_score_against_amflow(residue_short_coeffs, amflow_coeffs)
+    full_score = coefficient_score_against_amflow(residue_full_coeffs, amflow_coeffs)
     product_score = coefficient_score_against_amflow(product_coeffs, amflow_coeffs)
-    best_match = "not available"
-    if residue_score is not None and product_score is not None:
-        best_match = "residue_closed_form" if residue_score <= product_score else "product_closed_form"
+    scores = {
+        "short": short_score,
+        "full": full_score,
+        "product": product_score,
+    }
+    available_scores = {key: value for key, value in scores.items() if value is not None}
+    best_match = min(available_scores, key=available_scores.get) if available_scores else "none"
     print()
     print("== Scores ==")
     print_small_table(
         ["quantity", "value"],
         [
-            ["score residue_closed_form vs AMFlow", fmt_float(residue_score)],
+            ["score_short_vs_amflow", fmt_float(short_score)],
+            ["score_full_vs_amflow", fmt_float(full_score)],
             ["score product_closed_form vs AMFlow", fmt_float(product_score)],
-            ["best match", best_match],
+            ["BEST_CANDIDATE", best_match],
         ],
     )
     return {
         "point_name": point.name,
-        "residue_coeffs": residue_coeffs,
+        "residue_coeffs": residue_short_coeffs,
+        "residue_full_coeffs": residue_full_coeffs,
         "product_coeffs": product_coeffs,
         "amflow_coeffs": amflow_coeffs,
-        "residue_score": residue_score,
+        "residue_score": short_score,
+        "residue_full_score": full_score,
         "product_score": product_score,
         "best_match": best_match,
     }
@@ -3756,11 +4532,14 @@ def compare_closed_form_for_point(point_name, eps, eta, args):
 def run_compare_closed_form_mode(point_names, eps, eta, args):
     output_dir = repo_root() / "amflow-project" / "targets" / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    report_name = (
-        "two_loop_residue_closed_compare_all_points.txt"
-        if len(point_names) > 1
-        else f"two_loop_residue_closed_compare_{point_names[0]}.txt"
-    )
+    if args.run_amflow_benchmark:
+        report_name = "amflow_benchmark_equal_mass_offshell_positive.txt"
+    else:
+        report_name = (
+            "two_loop_residue_closed_compare_all_points.txt"
+            if len(point_names) > 1
+            else f"two_loop_residue_closed_compare_{point_names[0]}.txt"
+        )
     report_path = output_dir / report_name
     with report_path.open("w", encoding="utf-8") as report:
         tee = Tee(sys.stdout, report)
@@ -4012,6 +4791,34 @@ def main():
 
     process_amflow_import_args(args)
 
+    if args.run_amflow_benchmark:
+        args.point = "equal_mass_offshell_positive"
+        args.compare_closed_form = True
+        args.residue_scale = "short"
+        args.amflow = "fresh"
+        args.amflow_eps_order = "4"
+        args.amflow_sanity_check = True
+        args.amflow_parser_debug = True
+        args.fit_max_power = min(args.fit_max_power, 0)
+        print("Running AMFlow benchmark: equal_mass_offshell_positive, order 4, short scale.")
+
+    if args.compare_amflow_clean_points:
+        args.points = ",".join([
+            "equal_mass_offshell_positive",
+            "four_mass_offshell_branch_safe_B",
+            "four_mass_offshell_branch_safe_C",
+        ])
+        args.compare_closed_form = True
+        if args.amflow == "fresh":
+            print("WARNING: --compare-amflow-clean-points with --amflow fresh will run fresh AMFlow for all selected points.")
+        elif args.amflow == "skip":
+            args.amflow = "reuse"
+            print("Using --amflow reuse for clean-point comparison. Pass --amflow imported or --amflow fresh explicitly to change this.")
+
+    if args.suggest_branch_safe_points:
+        suggest_branch_safe_points()
+        return
+
     if args.compare_coefficients:
         eps_values = parse_eps_list(args.eps_list)
     elif args.eps_list is not None:
@@ -4030,6 +4837,21 @@ def main():
         point_names = [args.point]
     eta = parse_mpf(args.eta)
 
+    if args.amflow in ("fresh", "reuse"):
+        for point_name in point_names:
+            check_high_order_amflow_allowed(point_name, args)
+
+    if args.numerical_scale_ladder_check:
+        require_mpmath_for_l_residue()
+        run_numerical_scale_ladder_mode(point_names, parse_mpf(args.eps), eta, args)
+        return
+
+    if args.ksubloop_numeric_check:
+        if args.amflow == "fresh":
+            args.amflow = "skip"
+        run_ksubloop_numeric_check_mode(point_names, parse_mpf(args.eps), eta, args)
+        return
+
     if args.method3_coeff_cutoff_log:
         run_method3_cutoff_log_mode(point_names, eta, args)
         return
@@ -4046,7 +4868,16 @@ def main():
 
     if args.method1_l_residue_direct_check:
         require_mpmath_for_l_residue()
-        run_method1_l_residue_direct_mode(point_names, parse_mpf(args.eps), eta, args)
+        if args.amflow == "fresh":
+            args.amflow = "skip"
+        run_residue_1d_scale_check_mode(point_names, parse_mpf(args.eps), eta, args, include_cutoff_scan=args.residue_1d_cutoff_scan)
+        return
+
+    if args.residue_1d_cutoff_scan:
+        require_mpmath_for_l_residue()
+        if args.amflow == "fresh":
+            args.amflow = "skip"
+        run_residue_1d_scale_check_mode(point_names, parse_mpf(args.eps), eta, args, include_cutoff_scan=True)
         return
 
     if args.compare_coefficients:

@@ -53,19 +53,30 @@ def product_closed_form(point, eps, eta=mp.mpf("1e-30"), branch="-i0"):
 method12_closed = product_closed_form
 
 
-def residue_closed_form(point, eps, eta=mp.mpf("1e-30"), short_C_diagnostic=False):
+def _scale_to_short_c(scale=None, short_C_diagnostic=None):
+    if scale is None:
+        if short_C_diagnostic is None:
+            scale = "full"
+        else:
+            scale = "short" if short_C_diagnostic else "full"
+    if scale not in ("short", "full"):
+        raise ValueError("residue scale must be 'short' or 'full'.")
+    return scale == "short"
+
+
+def residue_closed_form(point, eps, eta=mp.mpf("1e-30"), scale=None, short_C_diagnostic=None):
     return complex(
         method1_l_residue_closed(
             point,
             _as_mpf(eps),
             eta=_as_mpf(eta),
-            short_C_diagnostic=short_C_diagnostic,
+            short_C_diagnostic=_scale_to_short_c(scale, short_C_diagnostic),
         )
     )
 
 
-def residue_ingredients(point, short_C_diagnostic=False):
-    return l_residue_closed_ingredients(point, short_C_diagnostic=short_C_diagnostic)
+def residue_ingredients(point, scale=None, short_C_diagnostic=None):
+    return l_residue_closed_ingredients(point, short_C_diagnostic=_scale_to_short_c(scale, short_C_diagnostic))
 
 
 def product_laurent_coefficients(point, max_order=2, eta=mp.mpf("1e-30"), min_power=-2, branch="-i0"):
@@ -90,7 +101,7 @@ def product_laurent_coefficients(point, max_order=2, eta=mp.mpf("1e-30"), min_po
     return {power: exp_coeffs[power + 2] / X for power in range(min_power, max_order + 1)}
 
 
-def residue_laurent_coefficients(point, max_order=2, eta=mp.mpf("1e-40"), min_power=-2, short_C_diagnostic=False):
+def residue_laurent_coefficients(point, max_order=2, eta=mp.mpf("1e-40"), min_power=-2, scale=None, short_C_diagnostic=None):
     if min_power < -2:
         raise ValueError("residue coefficients are implemented from c[-2] upward.")
     mp.mp.dps = 100
@@ -107,7 +118,7 @@ def residue_laurent_coefficients(point, max_order=2, eta=mp.mpf("1e-40"), min_po
             point,
             eps,
             eta=_as_mpf(eta),
-            short_C_diagnostic=short_C_diagnostic,
+            short_C_diagnostic=_scale_to_short_c(scale, short_C_diagnostic),
         )
         for eps in eps_nodes
     ])
@@ -116,4 +127,3 @@ def residue_laurent_coefficients(point, max_order=2, eta=mp.mpf("1e-40"), min_po
         power: complex(float(mp.re(solved[power + 2])), float(mp.im(solved[power + 2])))
         for power in range(min_power, max_order + 1)
     }
-

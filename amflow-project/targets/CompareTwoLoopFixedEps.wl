@@ -18,6 +18,12 @@ coeffPowers = TwoLoopCoeffPowers[epsOrder];
 epsEnv = Environment["TWO_LOOP_EPS_VALUE"];
 epsListEnv = Environment["TWO_LOOP_EPS_LIST"];
 reuseEnv = Environment["AMFLOW_REUSE_RESULT"];
+residueScaleEnv = Environment["AMFLOW_RESIDUE_SCALE"];
+residueScaleComparison =
+  If[StringQ[residueScaleEnv] && StringLength[residueScaleEnv] > 0,
+    residueScaleEnv,
+    "not specified"
+  ];
 reuseAMFlowResult = StringQ[reuseEnv] && MemberQ[{"1", "true", "True", "yes", "YES"}, reuseEnv];
 legacyCacheFile = FileNameJoin[{$ResultsDirectory, "compare_twoloop_fixed_eps_result.wl"}];
 epsValue =
@@ -267,6 +273,24 @@ If[sval =!= 0,
 ];
 Print["METHOD12_FIXED_EPS_VALUE=", InputForm[method12Value]];
 Print["AMFLOW_FIXED_EPS_VALUE=", InputForm[amflowValue]];
+Print["BEGIN_AMFLOW_METADATA"];
+Print["point = ", point["name"]];
+Print["pPlus = ", InputForm[point["pPlus"]]];
+Print["pMinus = ", InputForm[point["pMinus"]]];
+Print["pPerp2 = ", InputForm[point["pPerp2"]]];
+Print["p2 = ", InputForm[point["p2"]]];
+Print["x = ", InputForm[point["x"]]];
+Print["y = ", InputForm[point["y"]]];
+Print["ml2 = ", InputForm[point["ml2"]]];
+Print["Ml2 = ", InputForm[point["Ml2"]]];
+Print["mk2 = ", InputForm[point["mk2"]]];
+Print["Mk2 = ", InputForm[point["Mk2"]]];
+Print["AMFLOW_EPS_ORDER = ", InputForm[epsOrder]];
+Print["AMFLOW_PRECISION_GOAL = ", InputForm[precisionGoal]];
+Print["AMFLOW_TARGET_INTEGRALS = ", InputForm[TwoLoopKernelTarget /@ TwoLoopKernelPieces[]]];
+Print["AMFLOW_NORMALIZATION = 1/(2 Pi I)^2"];
+Print["residue_scale_comparison = ", residueScaleComparison];
+Print["END_AMFLOW_METADATA"];
 Print["AMFLOW_OBJECT_POINT=", point["name"]];
 Print["AMFLOW_OBJECT_TARGET=compare-twoloop-fixed-eps"];
 Print["AMFLOW_OBJECT_FAMILIES=", InputForm[TwoLoopKernelFamilySymbol /@ TwoLoopKernelPieces[]]];
