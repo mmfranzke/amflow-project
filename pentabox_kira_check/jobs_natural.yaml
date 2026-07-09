@@ -1,0 +1,15 @@
+# Run 1 — natural basis (symmetries ON): confirm master count vs FAIR's 239, and check whether
+# the scalar corner is a master by default (expected: it is -> kira2math returns it as itself).
+jobs:
+ - reduce_sectors:
+    reduce:
+     - {topologies: [pentabox], sectors: [255], r: 9, s: 2, d: 1}
+    select_integrals:
+     select_mandatory_list:
+      - [target]
+    run_symmetries: true
+    run_initiate: true
+    run_firefly: true
+ - kira2math:
+    target:
+     - [target]

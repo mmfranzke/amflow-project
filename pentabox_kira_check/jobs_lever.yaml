@@ -1,0 +1,17 @@
+# Run 2 — THE BASIS LEVER. preferred_masters forces a dotted top integral to be the top-sector
+# master, so the scalar corner reduces:  I[1] = sum(sub-sector masters) + c_top(d)*g_top.
+# kira2math exports the reduction to Mathematica form for the c_top epsilon-expansion + pole check.
+jobs:
+ - reduce_sectors:
+    reduce:
+     - {topologies: [pentabox], sectors: [255], r: 9, s: 2, d: 1}
+    select_integrals:
+     select_mandatory_list:
+      - [target]
+    preferred_masters: "preferred"
+    run_symmetries: true
+    run_initiate: true
+    run_firefly: true
+ - kira2math:
+    target:
+     - [target]

@@ -1,0 +1,20 @@
+## Pentabox top sector = all 8 genuine lines A1..A8 present => bitmask 255.
+## Propagators: pentabox.tex Eq.(props), with k2 = l2 (pentagon), k1 = l1 (box),
+## and p5 -> -(p1+p2+p3+p4). 8 genuine props + 3 ISPs = 11 (L(L+1)/2 + L*E = 3 + 8).
+## ISPs (k1+p2, k1+p3, k2+p4) complete the loop scalar-product basis.
+integralfamilies:
+  - name: "pentabox"
+    loop_momenta: [k1, k2]
+    top_level_sectors: [255]
+    propagators:
+      - [ "k2",              0]   # A1 = l2^2
+      - [ "k2+p1",           0]   # A2 = (l2+p1)^2
+      - [ "k2+p1+p2",        0]   # A3 = (l2+p1+p2)^2
+      - [ "k2+p1+p2+p3",     0]   # A4 = (l2+p1+p2+p3)^2
+      - [ "k1",              0]   # A5 = l1^2
+      - [ "k1-p1-p2-p3-p4",  0]   # A6 = (l1+p5)^2
+      - [ "k1-p1-p2-p3",     0]   # A7 = (l1+p5+p4)^2
+      - [ "k1+k2",           0]   # A8 = (l1+l2)^2   (the rung)
+      - [ "k1+p2",           0]   # ISP
+      - [ "k1+p3",           0]   # ISP
+      - [ "k2+p4",           0]   # ISP

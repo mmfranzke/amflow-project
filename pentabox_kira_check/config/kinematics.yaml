@@ -1,0 +1,31 @@
+## Pentabox family — SYMBOLIC kinematics (the well-tested Kira path).
+## Externals p1..p4 independent; p5 = -(p1+p2+p3+p4) eliminated by momentum conservation; p1^2=0.
+## Composite-momentum SP rules define the 9 invariants; Kira solves the linear SP system.
+##   m2sq=(p2)^2, m3sq=(p3)^2, m4sq=(p4)^2, s12=(p1+p2)^2, m23sq=(p2+p3)^2, s34=(p3+p4)^2,
+##   s123=(p1+p2+p3)^2, s15=(p2+p3+p4)^2, m5sq=(p1+p2+p3+p4)^2.
+kinematics:
+  incoming_momenta: [p1,p2,p3,p4,p5]
+  outgoing_momenta: []
+  momentum_conservation: [p5,-p1-p2-p3-p4]
+  kinematic_invariants:
+     - [m2sq,  2]
+     - [m3sq,  2]
+     - [m4sq,  2]
+     - [m5sq,  2]
+     - [s12,   2]
+     - [m23sq, 2]
+     - [s123,  2]
+     - [s15,   2]
+     - [s34,   2]
+  scalarproduct_rules:
+     - [[p1,p1], 0]
+     - [[p2,p2], m2sq]
+     - [[p3,p3], m3sq]
+     - [[p4,p4], m4sq]
+     - [[p1+p2,p1+p2], s12]
+     - [[p2+p3,p2+p3], m23sq]
+     - [[p3+p4,p3+p4], s34]
+     - [[p1+p2+p3,p1+p2+p3], s123]
+     - [[p2+p3+p4,p2+p3+p4], s15]
+     - [[p1+p2+p3+p4,p1+p2+p3+p4], m5sq]
+  symbol_to_replace_by_one: s34

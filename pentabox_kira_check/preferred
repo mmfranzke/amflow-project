@@ -1,0 +1,9 @@
+# Basis lever for the 4-dimensional pentabox top sector.
+# The scalar corner pentabox[1,1,1,1,1,1,1,1] is NOT listed, so it is forced to reduce onto these
+# four dotted top-sector masters + sub-sectors:  I[1] = sum_k c_k(eps,{s}) g_k^top + sum_j c_j M_j^sub.
+# (LiteRed found the 4 top masters to be {corner, dot1, dot2, dot5}; here we replace the scalar
+#  corner by the dotted-rung integral so none of the four masters is the scalar corner.)
+pentabox[2,1,1,1,1,1,1,1,0,0,0]
+pentabox[1,2,1,1,1,1,1,1,0,0,0]
+pentabox[1,1,1,1,2,1,1,1,0,0,0]
+pentabox[1,1,1,1,1,1,1,2,0,0,0]
