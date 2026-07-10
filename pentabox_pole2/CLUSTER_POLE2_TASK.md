@@ -39,3 +39,11 @@ on jet lines, so likely divergent -> likely DO contribute. Test it directly:
   delivers this; validated: pySecDec reproduced the sector-53 bubble-chain and sector-150 triangle to
   14-16 digits vs exact). Do NOT lower the precision.
 - No new IBP runs; reuse `kira_target.m`.
+
+## Assembly: Python OR Mathematica (your choice)
+After `eval_sub_masters.py` finishes, assemble either way (same result):
+- **Python:**       `python assemble_sub.py`
+- **Mathematica:**  `python parse_psd.py`  (json -> masterLaurents.wl), then
+                    `wolframscript -file assemble_sub.wl`   (or `math -script assemble_sub.wl`)
+Only the master *evaluation* (step 2) needs pySecDec; the physics assembly can be Mathematica.
+AMFlow is NOT used for the 161 masters — it is hours-per-master (weeks total); pySecDec is minutes.
